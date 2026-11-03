@@ -47,7 +47,24 @@
 /* ---- 基础样式 ---- */
 body {
   @apply bg-bg text-text antialiased;
+  background-image: url('/bg.png');
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+  background-repeat: no-repeat;
 }
+
+/* 用伪元素盖一层半透明遮罩，日夜不同 */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: var(--bg-overlay);
+  pointer-events: none;
+}
+:root { --bg-overlay: rgba(248, 250, 252, 0.85); }   /* 日间：浅色蒙层 */
+.dark { --bg-overlay: rgba(11, 18, 32, 0.85); }        /* 夜间：深色蒙层 */
 
 /* 输入框统一（可选，省得每个都写） */
 input,

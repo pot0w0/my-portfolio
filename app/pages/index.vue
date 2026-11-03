@@ -20,7 +20,7 @@ onMounted(async () => {
   <div class="space-y-12">
     <section 
       class="text-center py-16 relative overflow-hidden"
-      style="background-image: url('/bg-home.jpg'); background-size: cover; background-position: center;"
+      style="background-image: url('/dontknow.jpg'); background-size: cover; background-position: center;"
     >
       <!-- 暗色遮罩 -->
       <div class="absolute inset-0 bg-black/40"></div>
