@@ -45,17 +45,35 @@
 }
 
 /* ---- 基础样式 ---- */
+html {
+  @apply bg-bg;
+}
 body {
-  @apply bg-bg text-text antialiased;
+  @apply text-text antialiased;
+}
+
+/* ::before 放背景图 */
+body::before {
+  content: '';
+  position: fixed;
+  inset: -100px;
+    transform: translate3d(
+    calc(var(--mx, 0) * -20px),
+    calc(var(--my, 0) * -20px),
+    0
+  );
+  will-change: transform;
+  z-index: -2;
   background-image: url('/bg.png');
   background-size: cover;
   background-position: center;
   background-attachment: fixed;
   background-repeat: no-repeat;
+  pointer-events: none;
 }
 
-/* 用伪元素盖一层半透明遮罩，日夜不同 */
-body::before {
+/* ::after 放蒙层，盖在图上 */
+body::after {
   content: '';
   position: fixed;
   inset: 0;
@@ -63,8 +81,9 @@ body::before {
   background: var(--bg-overlay);
   pointer-events: none;
 }
-:root { --bg-overlay: rgba(248, 250, 252, 0.85); }   /* 日间：浅色蒙层 */
-.dark { --bg-overlay: rgba(11, 18, 32, 0.85); }        /* 夜间：深色蒙层 */
+
+:root { --bg-overlay: rgba(248, 250, 252, 0.85); }
+.dark  { --bg-overlay: rgba(11, 18, 32, 0.85); }
 
 /* 输入框统一（可选，省得每个都写） */
 input,

@@ -23,6 +23,9 @@ useHead({
 onMounted(() => {
   useTheme().init()
 })
+
+// 鼠标
+useMouseParallax()
 </script>
 
 <template>
