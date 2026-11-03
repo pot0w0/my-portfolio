@@ -1,5 +1,88 @@
 @import "tailwindcss";
+@plugin "@tailwindcss/typography";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ---- 语义色：值来自 CSS 变量 ---- */
+@theme {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+
+  /* 主色/危险色日夜基本不变，也可做成变量 */
+  --color-primary: var(--primary);
+  --color-danger: var(--danger);
+}
+
+/* ---- 日间变量 ---- */
+:root {
+  --bg: #dde0e5;          /* slate-50 */
+  --surface: #ffffff;     /* white */
+  --surface-2: #f1f5f9;   /* slate-100 */
+  --border: #e2e8f0;      /* slate-200 */
+  --text: #1e293b;        /* slate-800 */
+  --muted: #475569;       /* slate-600 */
+  --faint: #94a3b8;       /* slate-400 */
+  --primary: #2563eb;     /* blue-600 */
+  --danger: #dc2626;      /* red-600 */
+}
+
+/* ---- 夜间变量 ---- */
+.dark {
+  --bg: #060b18;          /* slate-900 */
+  --surface: #1e293b;     /* slate-800 */
+  --surface-2: #334155;   /* slate-700 */
+  --border: #334155;      /* slate-700 */
+  --text: #f1f5f9;        /* slate-100 */
+  --muted: #cbd5e1;       /* slate-300 */
+  --faint: #64748b;       /* slate-500 */
+  --primary: #3b82f6;     /* blue-500 */
+  --danger: #f87171;      /* red-400 */
+}
+
+/* ---- 基础样式 ---- */
 body {
-  @apply bg-slate-50 text-slate-800 antialiased;
+  @apply bg-bg text-text antialiased;
+}
+
+/* 输入框统一（可选，省得每个都写） */
+input,
+textarea,
+select {
+  @apply bg-surface text-text border-border;
+}
+
+/* prose 夜间反转（详情页文章区） */
+.prose {
+  --tw-prose-body: var(--muted);
+  --tw-prose-headings: var(--text);
+  --tw-prose-links: var(--primary);
+  --tw-prose-bold: var(--text);
+  --tw-prose-quotes: var(--muted);
+  --tw-prose-quote-borders: var(--border);
+  --tw-prose-code: var(--text);
+  --tw-prose-pre-bg: var(--surface-2);
+  --tw-prose-pre-code: var(--text);
+  --tw-prose-hr: var(--border);
+  --tw-prose-th-borders: var(--border);
+  --tw-prose-td-borders: var(--border);
+}
+
+/* 关掉 root 默认的交叉淡入，改用 clip-path 圆 */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+/* 新快照在最上层，旧快照垫底（保证扩散盖住旧画面） */
+::view-transition-old(root) {
+  z-index: 1;
+}
+::view-transition-new(root) {
+  z-index: 2;
 }

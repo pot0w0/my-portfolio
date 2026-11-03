@@ -79,14 +79,14 @@ async function onSave(payload: { title: string; content: string }) {
     <div class="flex items-center justify-between">
       <h1 class="text-2xl font-bold">
         博客
-        <span v-if="userId" class="text-base font-normal text-slate-500">
+        <span v-if="userId" class="text-base font-normal text-faint">
           · 用户 #{{ userId }} 的文章
-          <button class="text-blue-600 ml-2" @click="clearUserFilter">清除</button>
+          <button class="text-primary ml-2" @click="clearUserFilter">清除</button>
         </span>
       </h1>
       <button
         v-if="isLoggedIn"
-        class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+        class="px-4 py-2 bg-primary text-white rounded hover:bg-blue-700"
         @click="showEditor = !showEditor"
       >
         {{ showEditor ? '收起' : '写文章' }}
@@ -98,11 +98,11 @@ async function onSave(payload: { title: string; content: string }) {
       @save="onSave"
       @cancel="showEditor = false"
     />
-    <p v-if="saveError" class="text-sm text-red-600">{{ saveError }}</p>
+    <p v-if="saveError" class="text-sm text-danger">{{ saveError }}</p>
 
-    <p v-if="loading" class="text-slate-500">加载中…</p>
-    <p v-else-if="errorMsg" class="text-red-600">{{ errorMsg }}</p>
-    <p v-else-if="!posts.length" class="text-slate-500">暂无文章</p>
+    <p v-if="loading" class="text-faint">加载中…</p>
+    <p v-else-if="errorMsg" class="text-danger">{{ errorMsg }}</p>
+    <p v-else-if="!posts.length" class="text-faint">暂无文章</p>
 
     <div v-else class="grid gap-4">
       <PostCard v-for="p in posts" :key="p.id" :post="p" />

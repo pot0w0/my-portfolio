@@ -33,7 +33,7 @@ async function onLogout() {
 
 <template>
   <div class="space-y-8">
-    <section v-if="profile" class="bg-white border rounded-lg p-6 flex items-center justify-between">
+    <section v-if="profile" class="bg-surface border-border rounded-lg p-6 flex items-center justify-between">
       <div class="flex items-center gap-4">
         <img
           v-if="profile.avatar"
@@ -41,7 +41,7 @@ async function onLogout() {
           class="w-14 h-14 rounded-full object-cover"
           alt=""
         />
-        <div v-else class="w-14 h-14 rounded-full bg-slate-200 flex items-center justify-center text-xl font-bold">
+        <div v-else class="w-14 h-14 rounded-full bg-surface-2 flex items-center justify-center text-xl font-bold">
           {{ profile.username?.[0]?.toUpperCase() }}
         </div>
         <div>
@@ -52,18 +52,18 @@ async function onLogout() {
               class="text-xs px-2 py-0.5 bg-amber-100 text-amber-700 rounded"
             >管理员</span>
           </h1>
-          <p v-if="profile.email" class="text-sm text-slate-500">{{ profile.email }}</p>
+          <p v-if="profile.email" class="text-sm text-faint">{{ profile.email }}</p>
         </div>
       </div>
-      <button class="px-4 py-2 border rounded hover:bg-slate-100" @click="onLogout">
+      <button class="px-4 py-2 border-border rounded hover:bg-slate-100" @click="onLogout">
         登出
       </button>
     </section>
 
     <section>
       <h2 class="text-xl font-semibold mb-4">我的文章</h2>
-      <p v-if="loading" class="text-slate-500">加载中…</p>
-      <p v-else-if="!posts.length" class="text-slate-500">还没有文章</p>
+      <p v-if="loading" class="text-faint">加载中…</p>
+      <p v-else-if="!posts.length" class="text-faint">还没有文章</p>
       <div v-else class="grid gap-4">
         <PostCard v-for="p in posts" :key="p.id" :post="p" />
       </div>

@@ -25,18 +25,18 @@ defineExpose({ error })
   <form class="space-y-4" @submit.prevent="submit">
     <div>
       <label class="block text-sm mb-1">用户名</label>
-      <input v-model="username" class="w-full border rounded px-3 py-2" />
+      <input v-model="username" class="w-full border-border rounded px-3 py-2" />
     </div>
     <div v-if="mode === 'register'">
       <label class="block text-sm mb-1">邮箱（可选）</label>
-      <input v-model="email" type="email" class="w-full border rounded px-3 py-2" />
+      <input v-model="email" type="email" class="w-full border-border rounded px-3 py-2" />
     </div>
     <div>
       <label class="block text-sm mb-1">密码</label>
-      <input v-model="password" type="password" class="w-full border rounded px-3 py-2" />
+      <input v-model="password" type="password" class="w-full border-border rounded px-3 py-2" />
     </div>
-    <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
-    <button class="w-full bg-blue-600 text-white rounded py-2 hover:bg-blue-700">
+    <p v-if="error" class="text-sm text-danger">{{ error }}</p>
+    <button class="w-full bg-primary text-white rounded py-2 hover:bg-blue-700">
       {{ mode === 'login' ? '登录' : '注册' }}
     </button>
   </form>

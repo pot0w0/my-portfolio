@@ -33,14 +33,14 @@ onMounted(async () => {
         <div class="flex gap-3 justify-center">
           <NuxtLink
             to="/posts"
-            class="px-5 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+            class="px-5 py-2 bg-primary text-white rounded hover:bg-blue-700"
           >
             浏览博客
           </NuxtLink>
           <NuxtLink
             v-if="isLoggedIn"
             to="/posts"
-            class="px-5 py-2 border border-white rounded hover:bg-white/20"
+            class="px-5 py-2 border-border border-white rounded hover:bg-white/20"
           >
             写文章
           </NuxtLink>
@@ -52,7 +52,7 @@ onMounted(async () => {
     <section v-if="latest.length">
       <div class="flex items-center justify-between mb-4">
         <h2 class="text-2xl font-semibold">最新文章</h2>
-        <NuxtLink to="/posts" class="text-sm text-blue-600 hover:underline">
+        <NuxtLink to="/posts" class="text-sm text-primary hover:underline">
           查看全部 →
         </NuxtLink>
       </div>

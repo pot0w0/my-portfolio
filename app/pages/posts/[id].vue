@@ -59,14 +59,14 @@ async function onDelete() {
 
 <template>
   <div class="space-y-6">
-    <p v-if="loading" class="text-slate-500">加载中…</p>
-    <p v-else-if="errorMsg" class="text-red-600">{{ errorMsg }}</p>
+    <p v-if="loading" class="text-faint">加载中…</p>
+    <p v-else-if="errorMsg" class="text-danger">{{ errorMsg }}</p>
 
     <template v-else-if="post">
       <div class="flex items-start justify-between gap-4">
         <div>
           <h1 class="text-3xl font-bold mb-2">{{ post.title }}</h1>
-          <div class="flex items-center gap-4 text-sm text-slate-500">
+          <div class="flex items-center gap-4 text-sm text-faint">
             <UserBadge :user="post.author" :user-id="post.user_id" />
             <time v-if="post.created_at">
               {{ new Date(post.created_at).toLocaleString() }}
@@ -75,13 +75,13 @@ async function onDelete() {
         </div>
         <div v-if="isAuthorOrAdmin" class="flex gap-2 shrink-0">
           <button
-            class="px-3 py-1 border rounded hover:bg-slate-100"
+            class="px-3 py-1 border-border rounded hover:bg-slate-100"
             @click="editing = !editing"
           >
             {{ editing ? '取消' : '编辑' }}
           </button>
           <button
-            class="px-3 py-1 border border-red-300 text-red-600 rounded hover:bg-red-50"
+            class="px-3 py-1 border-border border-danger text-danger rounded hover:bg-red-50"
             @click="onDelete"
           >
             删除
@@ -89,7 +89,7 @@ async function onDelete() {
         </div>
       </div>
 
-      <p v-if="actionError" class="text-sm text-red-600">{{ actionError }}</p>
+      <p v-if="actionError" class="text-sm text-danger">{{ actionError }}</p>
 
       <PostEditor
         v-if="editing"
@@ -98,7 +98,7 @@ async function onDelete() {
         @cancel="editing = false"
       />
 
-      <article v-else class="prose prose-slate max-w-none bg-white border rounded-lg p-6">
+      <article v-else class="prose prose-slate max-w-none bg-surface border-border rounded-lg p-6">
         <MDC :value="post.content" />
       </article>
 

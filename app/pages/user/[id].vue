@@ -34,25 +34,25 @@ onMounted(async () => {
 
 <template>
   <div class="space-y-8">
-    <p v-if="loading" class="text-slate-500">加载中…</p>
-    <p v-else-if="errorMsg" class="text-red-600">{{ errorMsg }}</p>
+    <p v-if="loading" class="text-faint">加载中…</p>
+    <p v-else-if="errorMsg" class="text-danger">{{ errorMsg }}</p>
 
     <template v-else>
-      <section class="bg-white border rounded-lg p-6 flex items-center gap-4">
+      <section class="bg-surface border-border rounded-lg p-6 flex items-center gap-4">
         <img
           v-if="profile?.avatar"
           :src="profile.avatar"
           class="w-14 h-14 rounded-full object-cover"
           alt=""
         />
-        <div v-else class="w-14 h-14 rounded-full bg-slate-200 flex items-center justify-center text-xl font-bold">
+        <div v-else class="w-14 h-14 rounded-full bg-surface-2 flex items-center justify-center text-xl font-bold">
           {{ profile?.username?.[0]?.toUpperCase() || '?' }}
         </div>
         <div>
           <h1 class="text-xl font-bold">
             {{ profile?.username || `用户 #${userId}` }}
           </h1>
-          <p v-if="profile?.created_at" class="text-sm text-slate-500">
+          <p v-if="profile?.created_at" class="text-sm text-faint">
             加入于 {{ new Date(profile.created_at).toLocaleDateString() }}
           </p>
         </div>
@@ -60,7 +60,7 @@ onMounted(async () => {
 
       <section>
         <h2 class="text-xl font-semibold mb-4">TA 的文章</h2>
-        <p v-if="!posts.length" class="text-slate-500">暂无文章</p>
+        <p v-if="!posts.length" class="text-faint">暂无文章</p>
         <div v-else class="grid gap-4">
           <PostCard v-for="p in posts" :key="p.id" :post="p" />
         </div>

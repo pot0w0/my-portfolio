@@ -20,13 +20,13 @@ async function onSubmit(payload: any) {
 </script>
 
 <template>
-  <div class="max-w-sm mx-auto bg-white border rounded-lg p-6 space-y-4">
+  <div class="max-w-sm mx-auto bg-surface border-border rounded-lg p-6 space-y-4">
     <h1 class="text-2xl font-bold">注册</h1>
     <AuthForm mode="register" @submitted="onSubmit" />
-    <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
-    <p class="text-sm text-slate-500">
+    <p v-if="error" class="text-sm text-danger">{{ error }}</p>
+    <p class="text-sm text-faint">
       已有账号？
-      <NuxtLink to="/login" class="text-blue-600">去登录</NuxtLink>
+      <NuxtLink to="/login" class="text-primary">去登录</NuxtLink>
     </p>
   </div>
 </template>

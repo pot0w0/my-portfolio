@@ -63,7 +63,7 @@ async function onDelete(c: Comment) {
 <template>
   <section class="mt-10">
     <h2 class="text-xl font-semibold mb-4">
-      评论 <span class="text-slate-400 text-base">({{ comments.length }})</span>
+      评论 <span class="text-faint text-base">({{ comments.length }})</span>
     </h2>
 
     <form v-if="isLoggedIn" class="mb-6" @submit.prevent="submit">
@@ -71,24 +71,24 @@ async function onDelete(c: Comment) {
         v-model="draft"
         rows="3"
         placeholder="说点什么…"
-        class="w-full border rounded px-3 py-2 text-sm"
+        class="w-full border-border rounded px-3 py-2 text-sm"
       />
       <div class="flex justify-end mt-2">
         <button
-          class="px-4 py-1.5 bg-blue-600 text-white rounded text-sm disabled:opacity-50"
+          class="px-4 py-1.5 bg-primary text-white rounded text-sm disabled:opacity-50"
           :disabled="submitting || !draft.trim()"
         >
           {{ submitting ? '发表中…' : '发表评论' }}
         </button>
       </div>
     </form>
-    <p v-else class="text-sm text-slate-500 mb-6">
-      <NuxtLink to="/login" class="text-blue-600">登录</NuxtLink> 后参与评论
+    <p v-else class="text-sm text-faint mb-6">
+      <NuxtLink to="/login" class="text-primary">登录</NuxtLink> 后参与评论
     </p>
 
-    <p v-if="errorMsg" class="text-sm text-red-600 mb-3">{{ errorMsg }}</p>
-    <p v-if="loading" class="text-sm text-slate-500">加载中…</p>
-    <p v-else-if="!comments.length" class="text-sm text-slate-500">
+    <p v-if="errorMsg" class="text-sm text-danger mb-3">{{ errorMsg }}</p>
+    <p v-if="loading" class="text-sm text-faint">加载中…</p>
+    <p v-else-if="!comments.length" class="text-sm text-faint">
       还没有评论，来抢沙发
     </p>
 
@@ -96,24 +96,24 @@ async function onDelete(c: Comment) {
       <li
         v-for="c in comments"
         :key="c.id"
-        class="bg-white border rounded-lg p-4"
+        class="bg-surface border-border rounded-lg p-4"
       >
         <div class="flex items-center justify-between mb-1">
           <UserBadge :user="c.author" :user-id="c.user_id" />
-          <div class="flex items-center gap-3 text-xs text-slate-400">
+          <div class="flex items-center gap-3 text-xs text-faint">
             <time v-if="c.created_at">
               {{ new Date(c.created_at).toLocaleString() }}
             </time>
             <button
               v-if="canDelete(c)"
-              class="text-red-500 hover:underline"
+              class="text-danger hover:underline"
               @click="onDelete(c)"
             >
               删除
             </button>
           </div>
         </div>
-        <p class="text-sm text-slate-700 whitespace-pre-wrap">{{ c.content }}</p>
+        <p class="text-sm text-text whitespace-pre-wrap">{{ c.content }}</p>
       </li>
     </ul>
   </section>
