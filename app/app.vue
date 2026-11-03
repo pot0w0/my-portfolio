@@ -32,4 +32,5 @@ useMouseParallax()
   <NuxtLayout>
     <NuxtPage />
   </NuxtLayout>
+  <AppToaster />
 </template>

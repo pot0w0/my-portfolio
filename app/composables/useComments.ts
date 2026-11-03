@@ -4,7 +4,7 @@ export function useComments() {
   const api = useApi()
 
   function list(postId: number | string) {
-    return api.get<Comment[]>(`/api/posts/${postId}/comments`)
+    return api.get<Comment[]>(`/api/posts/${postId}/comments`, {silent: true} as any)
   }
   function create(postId: number | string, content: string) {
     return api.post<Comment>(`/api/posts/${postId}/comments`, { content })

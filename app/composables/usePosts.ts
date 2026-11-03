@@ -13,7 +13,7 @@ export function usePosts() {
   }
 
   function get(id: number | string) {
-    return api.get<Post>(`/api/posts/${id}`)
+    return api.get<Post>(`/api/posts/${id}`, {silent: true} as any)
   }
 
   function create(payload: PostPayload) {

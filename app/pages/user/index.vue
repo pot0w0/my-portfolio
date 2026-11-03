@@ -16,7 +16,7 @@ const loading = ref(false)
 onMounted(async () => {
   loading.value = true
   try {
-    profile.value = await api.get<User>('/api/user/me')
+    profile.value = await api.get<User>('/api/user/me', {silent: true} as any)
     const res = await list({ page: 1, limit: 50, user_id: profile.value.id })
     posts.value = res.data
   } catch {

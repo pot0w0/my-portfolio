@@ -41,7 +41,7 @@ export function useAuth() {
 
   async function fetchMe() {
     try {
-      const me = await api.get<User>('/api/user/me')
+      const me = await api.get<User>('/api/user/me', {silent: true} as any)
       user.value = me
       return me
     } catch (e: any) {

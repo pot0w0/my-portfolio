@@ -18,7 +18,7 @@ onMounted(async () => {
   try {
     // 若后端提供公开用户接口则用之；否则从文章列表兜底
     try {
-      profile.value = await api.get<User>(`/api/user/${userId.value}`)
+      profile.value = await api.get<User>(`/api/user/${userId.value, {silent: true} as any}`)
     } catch {
       profile.value = null
     }
