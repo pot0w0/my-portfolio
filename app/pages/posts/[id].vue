@@ -4,7 +4,7 @@ import type { Post } from '~/types/api'
 const route = useRoute()
 const router = useRouter()
 const { get, update, remove } = usePosts()
-const { user } = useAuth()
+const { user, isAdmin } = useAuth()
 
 const post = ref<Post | null>(null)
 const loading = ref(true)
@@ -13,6 +13,7 @@ const errorMsg = ref('')
 const isAuthor = computed(
   () => !!user.value && !!post.value && user.value.id === post.value.user_id,
 )
+const isAuthorOrAdmin = computed(() => isAuthor.value || isAdmin.value)
 
 async function fetchPost() {
   loading.value = true
@@ -72,7 +73,7 @@ async function onDelete() {
             </time>
           </div>
         </div>
-        <div v-if="isAuthor" class="flex gap-2 shrink-0">
+        <div v-if="isAuthorOrAdmin" class="flex gap-2 shrink-0">
           <button
             class="px-3 py-1 border rounded hover:bg-slate-100"
             @click="editing = !editing"
@@ -100,6 +101,9 @@ async function onDelete() {
       <article v-else class="prose prose-slate max-w-none bg-white border rounded-lg p-6">
         <MDC :value="post.content" />
       </article>
+
+      <!-- 新增 -->
+      <CommentSection :post="post" />
     </template>
   </div>
 </template>

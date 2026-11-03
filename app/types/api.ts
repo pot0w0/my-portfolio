@@ -1,6 +1,7 @@
 export interface User {
   id: number
   username: string
+  role?: 'user' | 'admin'
   email?: string
   avatar?: string
   created_at?: string
@@ -14,6 +15,15 @@ export interface Post {
   author?: User
   created_at?: string
   updated_at?: string
+}
+
+export interface Comment {
+  id: number
+  post_id: number
+  user_id: number
+  content: string
+  author?: User
+  created_at?: string
 }
 
 export interface Paginated<T> {

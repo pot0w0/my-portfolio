@@ -45,7 +45,13 @@ async function onLogout() {
           {{ profile.username?.[0]?.toUpperCase() }}
         </div>
         <div>
-          <h1 class="text-xl font-bold">{{ profile.username }}</h1>
+          <h1 class="text-xl font-bold flex items-center gap-2">
+            {{ profile.username }}
+            <span
+              v-if="profile.role === 'admin'"
+              class="text-xs px-2 py-0.5 bg-amber-100 text-amber-700 rounded"
+            >管理员</span>
+          </h1>
           <p v-if="profile.email" class="text-sm text-slate-500">{{ profile.email }}</p>
         </div>
       </div>

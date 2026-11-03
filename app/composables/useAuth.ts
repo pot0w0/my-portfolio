@@ -12,6 +12,7 @@ export function useAuth() {
   const initialized = useState<boolean>('auth:initialized', () => false)
 
   const isLoggedIn = computed(() => !!token.value && !!user.value)
+  const isAdmin = computed(() => user.value?.role === 'admin')
 
   function setAuth(t: string, u: User) {
     token.value = t
@@ -74,6 +75,7 @@ export function useAuth() {
     token,
     user,
     isLoggedIn,
+    isAdmin,
     login,
     register,
     fetchMe,

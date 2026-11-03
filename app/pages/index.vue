@@ -18,27 +18,36 @@ onMounted(async () => {
 
 <template>
   <div class="space-y-12">
-    <section class="text-center py-16">
-      <h1 class="text-4xl font-bold mb-4">欢迎来到我的作品集</h1>
-      <p class="text-slate-600 mb-8 max-w-xl mx-auto">
-        这里记录我的文章、项目与思考。
-      </p>
-      <div class="flex gap-3 justify-center">
-        <NuxtLink
-          to="/posts"
-          class="px-5 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-        >
-          浏览博客
-        </NuxtLink>
-        <NuxtLink
-          v-if="isLoggedIn"
-          to="/posts"
-          class="px-5 py-2 border rounded hover:bg-slate-100"
-        >
-          写文章
-        </NuxtLink>
+    <section 
+      class="text-center py-16 relative overflow-hidden"
+      style="background-image: url('/bg-home.jpg'); background-size: cover; background-position: center;"
+    >
+      <!-- 暗色遮罩 -->
+      <div class="absolute inset-0 bg-black/40"></div>
+      <!-- 内容放到上层，加 relative z-10 -->
+      <div class="relative z-10 text-white">
+        <h1 class="text-4xl font-bold mb-4">欢迎来到我的作品集</h1>
+        <p class="text-white/90 mb-8 max-w-xl mx-auto">
+          这里记录我的文章、项目与思考。
+        </p>
+        <div class="flex gap-3 justify-center">
+          <NuxtLink
+            to="/posts"
+            class="px-5 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+          >
+            浏览博客
+          </NuxtLink>
+          <NuxtLink
+            v-if="isLoggedIn"
+            to="/posts"
+            class="px-5 py-2 border border-white rounded hover:bg-white/20"
+          >
+            写文章
+          </NuxtLink>
+        </div>
       </div>
     </section>
+
 
     <section v-if="latest.length">
       <div class="flex items-center justify-between mb-4">
