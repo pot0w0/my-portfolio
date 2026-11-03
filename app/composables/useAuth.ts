@@ -71,6 +71,20 @@ export function useAuth() {
     if (token.value) await fetchMe()
   }
 
+  async function uploadAvatar(file: File) {
+    const form = new FormData()
+    form.append('file', file)
+    const res = await api.post<User>('/api/user/me/avatar', form)
+    user.value = res
+    return res
+  }
+
+  async function removeAvatar() {
+    const res = await api.del<User>('/api/user/me/avatar')
+    user.value = res
+    return res
+  }
+
   return {
     token,
     user,
@@ -83,5 +97,7 @@ export function useAuth() {
     init,
     setAuth,
     clearAuth,
+    uploadAvatar,
+    removeAvatar,
   }
 }

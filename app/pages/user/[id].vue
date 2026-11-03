@@ -4,6 +4,7 @@ import type { Post, User } from '~/types/api'
 const route = useRoute()
 const api = useApi()
 const { list } = usePosts()
+const mediaUrl = useMediaUrl()
 
 const userId = computed(() => Number(route.params.id))
 const profile = ref<User | null>(null)
@@ -38,14 +39,17 @@ onMounted(async () => {
     <p v-else-if="errorMsg" class="text-danger">{{ errorMsg }}</p>
 
     <template v-else>
-      <section class="bg-surface border-border rounded-lg p-6 flex items-center gap-4">
+      <section class="bg-surface border border-border rounded-lg p-6 flex items-center gap-4">
         <img
           v-if="profile?.avatar"
-          :src="profile.avatar"
-          class="w-14 h-14 rounded-full object-cover"
+          :src="mediaUrl(profile.avatar)"
+          class="w-14 h-14 rounded-full object-cover border border-border"
           alt=""
         />
-        <div v-else class="w-14 h-14 rounded-full bg-surface-2 flex items-center justify-center text-xl font-bold">
+        <div
+          v-else
+          class="w-14 h-14 rounded-full bg-surface-2 flex items-center justify-center text-xl font-bold text-faint"
+        >
           {{ profile?.username?.[0]?.toUpperCase() || '?' }}
         </div>
         <div>

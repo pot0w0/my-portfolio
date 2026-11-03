@@ -78,13 +78,8 @@ export function useTheme() {
     root.style.setProperty('--vt-r', `${r}px`)
 
     const transition = document.startViewTransition(() => {
-    // 必须同步！不要 await，不要包在 nextTick 里
-    const root = document.documentElement
-    if (next === 'dark') root.classList.add('dark')
-    else root.classList.remove('dark')
-    // 同步更新 useState
-    theme.value = next
-    if (import.meta.client) localStorage.setItem('theme', next)
+      set(next)       // 这里改 html.dark，触发快照
+      apply()
     })
 
     await transition.ready
