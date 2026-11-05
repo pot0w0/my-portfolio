@@ -7,12 +7,6 @@ export interface User {
   created_at?: string
 }
 
-export interface Category {
-  id: number
-  name: string
-  slug: string
-}
-
 export interface Tag {
   id: number
   name: string
@@ -46,7 +40,6 @@ export interface Post {
   series_id?: number | null
   series_order?: number | null
   series?: Series | null
-  category?: Category | null
   tags?: Tag[]
   featured?: boolean
   author?: User
@@ -75,26 +68,13 @@ export interface ApiError {
   message: string
 }
 
-export interface LoginPayload {
-  username: string
-  password: string
-}
-
-export interface RegisterPayload {
-  username: string
-  password: string
-  email?: string
-}
-
-export interface AuthResponse {
-  token: string
-  user: User
-}
+export interface LoginPayload { username: string; password: string }
+export interface RegisterPayload { username: string; password: string; email?: string }
+export interface AuthResponse { token: string; user: User }
 
 export interface PostPayload {
   title: string
   content: string
-  category_id?: number | null
   tag_ids?: number[]
   featured?: boolean
   series_id?: number | null
@@ -105,7 +85,6 @@ export interface PostListQuery {
   page?: number
   limit?: number
   user_id?: number
-  category?: string
   tag?: string
   featured?: boolean
   series_id?: number

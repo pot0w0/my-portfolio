@@ -40,10 +40,10 @@ onBeforeUnmount(() => {
           <NuxtLink to="/" class="hover:text-primary">首页</NuxtLink>
           <NuxtLink to="/posts" class="hover:text-primary">博客</NuxtLink>
           <template v-if="isLoggedIn">
-            <NuxtLink to="/posts" class="hover:text-primary">写文章</NuxtLink>
+            <!-- <NuxtLink to="/posts" class="hover:text-primary">写文章</NuxtLink>
             <NuxtLink :to="`/user/${user!.id}`" class="hover:text-primary">
               {{ user!.username }}
-            </NuxtLink>
+            </NuxtLink> -->
             <NuxtLink to="/user" class="hover:text-primary">我的</NuxtLink>
             <button class="text-faint hover:text-danger" @click="onLogout">登出</button>
           </template>

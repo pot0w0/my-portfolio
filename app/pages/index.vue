@@ -5,14 +5,13 @@ const route = useRoute()
 const router = useRouter()
 const { list, create } = usePosts()
 const { isLoggedIn } = useAuth()
-const { categories, tags, load: loadTax } = useTaxonomy()
+const { tags, load: loadTax } = useTaxonomy()
 
 const page = ref(Number(route.query.page) || 1)
 const limit = ref(10)
 const userId = computed(() =>
   route.query.user_id ? Number(route.query.user_id) : undefined,
 )
-const category = computed(() => (route.query.category as string) || '')
 const tag = computed(() => (route.query.tag as string) || '')
 
 const posts = ref<Post[]>([])
@@ -30,7 +29,6 @@ async function fetchPosts() {
       page: page.value,
       limit: limit.value,
       user_id: userId.value,
-      category: category.value || undefined,
       tag: tag.value || undefined,
     })
     posts.value = res.data
@@ -47,11 +45,11 @@ function changePage(p: number) {
   router.push({ query: { ...route.query, page: String(page.value) } })
 }
 
-function setCategory(slug: string) {
-  router.push({
-    query: { ...route.query, category: slug || undefined, page: '1' },
-  })
-}
+// function setCategory(slug: string) {
+//   router.push({
+//     query: { ...route.query, category: slug || undefined, page: '1' },
+//   })
+// }
 
 function setTag(slug: string) {
   router.push({
@@ -110,22 +108,6 @@ async function onSave(payload: PostPayload) {
       >
         {{ showEditor ? '收起' : '写文章' }}
       </button>
-    </div>
-
-    <!-- 分类 tab -->
-    <div class="flex gap-2 border-b border-border pb-2 overflow-x-auto">
-      <button
-        class="px-3 py-1 rounded-full text-sm whitespace-nowrap"
-        :class="!category ? 'bg-primary text-white' : 'hover:bg-surface-2'"
-        @click="setCategory('')"
-      >全部</button>
-      <button
-        v-for="c in categories"
-        :key="c.id"
-        class="px-3 py-1 rounded-full text-sm whitespace-nowrap"
-        :class="category === c.slug ? 'bg-primary text-white' : 'hover:bg-surface-2'"
-        @click="setCategory(c.slug)"
-      >{{ c.name }}</button>
     </div>
 
     <!-- 标签筛选 -->
