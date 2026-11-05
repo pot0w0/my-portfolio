@@ -20,5 +20,16 @@ defineProps<{ post: Post }>()
         {{ new Date(post.created_at).toLocaleDateString() }}
       </time>
     </div>
+    <div class="flex items-center gap-2 text-xs text-faint mt-2 flex-wrap">
+      <span v-if="post.category" class="px-2 py-0.5 rounded bg-primary/10 text-primary">
+        {{ post.category.name }}
+      </span>
+      <span v-for="t in post.tags" :key="t.id" class="px-2 py-0.5 rounded bg-surface-2">
+        #{{ t.name }}
+      </span>
+      <span v-if="post.featured" class="px-2 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+        精选
+      </span>
+    </div>
   </article>
 </template>

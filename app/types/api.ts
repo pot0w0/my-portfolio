@@ -7,14 +7,37 @@ export interface User {
   created_at?: string
 }
 
+export interface Category { id: number; name: string; slug: string }
+export interface Tag { id: number; name: string; slug: string }
+
 export interface Post {
   id: number
   title: string
   content: string
   user_id: number
+  category?: Category | null
+  tags?: Tag[]
+  featured?: boolean
   author?: User
   created_at?: string
   updated_at?: string
+}
+
+export interface PostPayload {
+  title: string
+  content: string
+  category_id?: number | null
+  tag_ids?: number[]
+  featured?: boolean
+}
+
+export interface PostListQuery {
+  page?: number
+  limit?: number
+  user_id?: number
+  category?: string     // slug
+  tag?: string          // slug
+  featured?: boolean
 }
 
 export interface Comment {

@@ -56,7 +56,7 @@ onBeforeUnmount(() => {
             :title="isDark ? '切换到日间' : '切换到夜间'"
             @click="toggleWithTransition($event)"
           >
-            {{ isDark ? '☀️' : '🌙' }}
+            {{ isDark ? '日️' : '月' }}
           </button>
         </nav>
       </div>

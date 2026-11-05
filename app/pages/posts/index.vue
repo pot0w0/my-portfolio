@@ -5,6 +5,26 @@ const route = useRoute()
 const router = useRouter()
 const { list, create } = usePosts()
 const { isLoggedIn } = useAuth()
+const { categories, tags, load: loadTax } = useTaxonomy()
+
+const category = computed(() => (route.query.category as string) || '')
+const tag = computed(() => (route.query.tag as string) || '')
+
+onMounted(() => loadTax())
+
+watch(
+  () => route.query,
+  () => { page.value = Number(route.query.page) || 1; fetchPosts() },
+  { immediate: true },
+)
+
+function setCategory(slug: string) {
+  router.push({ query: { ...route.query, category: slug || undefined, page: '1' } })
+}
+function setTag(slug: string) {
+  router.push({ query: { ...route.query, tag: slug || undefined, page: '1' } })
+}
+
 
 const page = ref(Number(route.query.page) || 1)
 const limit = ref(10)
@@ -76,6 +96,29 @@ async function onSave(payload: { title: string; content: string }) {
 
 <template>
   <div class="space-y-6">
+    <!-- 分类 tab -->
+    <div class="flex gap-2 border-b border-border pb-2 mb-4 overflow-x-auto">
+      <button
+        class="px-3 py-1 rounded-full text-sm whitespace-nowrap"
+        :class="!category ? 'bg-primary text-white' : 'hover:bg-surface-2'"
+        @click="setCategory('')"
+      >全部</button>
+      <button
+        v-for="c in categories" :key="c.id"
+        class="px-3 py-1 rounded-full text-sm whitespace-nowrap"
+        :class="category === c.slug ? 'bg-primary text-white' : 'hover:bg-surface-2'"
+        @click="setCategory(c.slug)"
+      >{{ c.name }}</button>
+    </div>
+    <!-- 标签筛选 -->
+    <div class="flex gap-2 flex-wrap mb-6">
+      <button
+        v-for="t in tags" :key="t.id"
+        class="px-2 py-0.5 rounded text-xs border border-border"
+        :class="tag === t.slug ? 'bg-primary/10 text-primary border-primary/40' : 'text-muted'"
+        @click="setTag(tag === t.slug ? '' : t.slug)"
+      ># {{ t.name }}</button>
+    </div>
     <div class="flex items-center justify-between">
       <h1 class="text-2xl font-bold">
         博客

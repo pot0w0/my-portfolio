@@ -20,5 +20,10 @@ logs
 
 # Local env files
 .env
+.venv
+.envrc
 .env.*
 !.env.example
+
+uploads
+__pycache__

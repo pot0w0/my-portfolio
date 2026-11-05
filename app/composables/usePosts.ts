@@ -16,13 +16,15 @@ export function usePosts() {
     return api.get<Post>(`/api/posts/${id}`, {silent: true} as any)
   }
 
-  function create(payload: PostPayload) {
-    return api.post<Post>('/api/posts', payload)
-  }
+  // function create(payload: PostPayload) {
+  //   return api.post<Post>('/api/posts', payload)
+  // }
 
-  function update(id: number | string, payload: PostPayload) {
-    return api.put<Post>(`/api/posts/${id}`, payload)
-  }
+  // function update(id: number | string, payload: PostPayload) {
+  //   return api.put<Post>(`/api/posts/${id}`, payload)
+  // }
+  function create(payload: PostPayload) { return api.post<Post>('/api/posts', payload) }
+  function update(id: number | string, payload: PostPayload) { return api.put<Post>(`/api/posts/${id}`, payload) }
 
   function remove(id: number | string) {
     return api.del<void>(`/api/posts/${id}`)

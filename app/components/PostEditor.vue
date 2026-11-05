@@ -1,24 +1,53 @@
 <script setup lang="ts">
-import type { Post } from '~/types/api'
+import type { Post, PostPayload } from '~/types/api'
 
 const props = defineProps<{ post?: Post | null }>()
 const emit = defineEmits<{
-  (e: 'save', payload: { title: string; content: string }): void
+  (e: 'save', payload: PostPayload): void
   (e: 'cancel'): void
 }>()
+
+const { categories, tags, load } = useTaxonomy()
+const { isAdmin } = useAuth()
+onMounted(() => load())
 
 const title = ref(props.post?.title ?? '')
 const content = ref(props.post?.content ?? '')
 const preview = ref(false)
+const categoryId = ref<number | null>(props.post?.category?.id ?? null)
+const tagIds = ref<number[]>(props.post?.tags?.map(t => t.id) ?? [])
+const featured = ref(props.post?.featured ?? false)
 
 function save() {
   if (!title.value.trim() || !content.value.trim()) return
-  emit('save', { title: title.value.trim(), content: content.value })
+  emit('save', {
+    title: title.value.trim(),
+    content: content.value,
+    category_id: categoryId.value,
+    tag_ids: tagIds.value,
+    featured: featured.value,
+  })
 }
 </script>
 
 <template>
   <div class="bg-surface border-border rounded-lg p-5">
+    <select v-model.number="categoryId" class="w-full border border-border rounded px-3 py-2 bg-surface">
+      <option :value="null">未分类</option>
+      <option v-for="c in categories" :key="c.id" :value="c.id">{{ c.name }}</option>
+    </select>
+
+    <div class="flex flex-wrap gap-2">
+      <label v-for="t in tags" :key="t.id" class="flex items-center gap-1 text-sm">
+        <input type="checkbox" :value="t.id" v-model="tagIds" />
+        {{ t.name }}
+      </label>
+    </div>
+
+    <label v-if="isAdmin" class="flex items-center gap-2 text-sm">
+      <input type="checkbox" v-model="featured" /> 设为精选
+    </label>
+
     <div class="flex items-center justify-between mb-3">
       <h3 class="font-semibold">{{ post ? '编辑文章' : '写文章' }}</h3>
       <button class="text-sm text-primary" @click="preview = !preview">
