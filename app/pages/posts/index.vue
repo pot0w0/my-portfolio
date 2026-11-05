@@ -1,161 +1,56 @@
 <script setup lang="ts">
 import type { Post } from '~/types/api'
 
-const route = useRoute()
-const router = useRouter()
-const { list, create } = usePosts()
+const { list } = usePosts()
 const { isLoggedIn } = useAuth()
-const { categories, tags, load: loadTax } = useTaxonomy()
 
-const category = computed(() => (route.query.category as string) || '')
-const tag = computed(() => (route.query.tag as string) || '')
+const latest = ref<Post[]>([])
+const featured = ref<Post[]>([])
 
-onMounted(() => loadTax())
-
-watch(
-  () => route.query,
-  () => { page.value = Number(route.query.page) || 1; fetchPosts() },
-  { immediate: true },
-)
-
-function setCategory(slug: string) {
-  router.push({ query: { ...route.query, category: slug || undefined, page: '1' } })
-}
-function setTag(slug: string) {
-  router.push({ query: { ...route.query, tag: slug || undefined, page: '1' } })
-}
-
-
-const page = ref(Number(route.query.page) || 1)
-const limit = ref(10)
-const userId = computed(() =>
-  route.query.user_id ? Number(route.query.user_id) : undefined,
-)
-
-const posts = ref<Post[]>([])
-const total = ref(0)
-const loading = ref(false)
-const errorMsg = ref('')
-
-const { totalPages, canPrev, canNext, go } = usePagination(page, limit, total)
-
-async function fetchPosts() {
-  loading.value = true
-  errorMsg.value = ''
+onMounted(async () => {
   try {
-    const res = await list({
-      page: page.value,
-      limit: limit.value,
-      user_id: userId.value,
-    })
-    posts.value = res.data
-    total.value = res.total
-  } catch (e: any) {
-    errorMsg.value = e?.message ?? '加载失败'
-  } finally {
-    loading.value = false
+    const [f, l] = await Promise.all([
+      list({ page: 1, limit: 2, featured: true }),
+      list({ page: 1, limit: 3, standalone: true }),
+    ])
+    featured.value = f.data
+    latest.value = l.data
+  } catch {
+    featured.value = []
+    latest.value = []
   }
-}
-
-function changePage(p: number) {
-  go(p)
-  router.push({ query: { ...route.query, page: page.value } })
-}
-
-function clearUserFilter() {
-  const q = { ...route.query }
-  delete q.user_id
-  q.page = '1'
-  router.push({ query: q })
-}
-
-watch(
-  () => route.query,
-  () => {
-    page.value = Number(route.query.page) || 1
-    fetchPosts()
-  },
-  { immediate: true },
-)
-
-// 新建文章
-const showEditor = ref(false)
-const saveError = ref('')
-
-async function onSave(payload: { title: string; content: string }) {
-  saveError.value = ''
-  try {
-    await create(payload)
-    showEditor.value = false
-    await fetchPosts()
-  } catch (e: any) {
-    saveError.value = e?.message ?? '保存失败'
-  }
-}
+})
 </script>
 
 <template>
-  <div class="space-y-6">
-    <!-- 分类 tab -->
-    <div class="flex gap-2 border-b border-border pb-2 mb-4 overflow-x-auto">
-      <button
-        class="px-3 py-1 rounded-full text-sm whitespace-nowrap"
-        :class="!category ? 'bg-primary text-white' : 'hover:bg-surface-2'"
-        @click="setCategory('')"
-      >全部</button>
-      <button
-        v-for="c in categories" :key="c.id"
-        class="px-3 py-1 rounded-full text-sm whitespace-nowrap"
-        :class="category === c.slug ? 'bg-primary text-white' : 'hover:bg-surface-2'"
-        @click="setCategory(c.slug)"
-      >{{ c.name }}</button>
-    </div>
-    <!-- 标签筛选 -->
-    <div class="flex gap-2 flex-wrap mb-6">
-      <button
-        v-for="t in tags" :key="t.id"
-        class="px-2 py-0.5 rounded text-xs border border-border"
-        :class="tag === t.slug ? 'bg-primary/10 text-primary border-primary/40' : 'text-muted'"
-        @click="setTag(tag === t.slug ? '' : t.slug)"
-      ># {{ t.name }}</button>
-    </div>
-    <div class="flex items-center justify-between">
-      <h1 class="text-2xl font-bold">
-        博客
-        <span v-if="userId" class="text-base font-normal text-faint">
-          · 用户 #{{ userId }} 的文章
-          <button class="text-primary ml-2" @click="clearUserFilter">清除</button>
-        </span>
-      </h1>
-      <button
-        v-if="isLoggedIn"
-        class="px-4 py-2 bg-primary text-white rounded hover:bg-blue-700"
-        @click="showEditor = !showEditor"
-      >
-        {{ showEditor ? '收起' : '写文章' }}
-      </button>
-    </div>
+  <div class="space-y-12">
+    <section class="text-center py-16 relative overflow-hidden rounded-xl" style="background-image: url('/dontknow.jpg'); background-size: cover; background-position: center;">
+      <div class="absolute inset-0 bg-black/40"></div>
+      <div class="relative z-10 text-white">
+        <h1 class="text-4xl font-bold mb-4">欢迎来到我的作品集</h1>
+        <p class="text-white/90 mb-8 max-w-xl mx-auto">这里记录我的文章、项目与思考。</p>
+        <div class="flex gap-3 justify-center">
+          <NuxtLink to="/posts" class="px-5 py-2 bg-primary text-white rounded hover:opacity-90">浏览博客</NuxtLink>
+          <NuxtLink v-if="isLoggedIn" to="/posts" class="px-5 py-2 border border-white rounded hover:bg-white/20">写文章</NuxtLink>
+        </div>
+      </div>
+    </section>
 
-    <PostEditor
-      v-if="showEditor"
-      @save="onSave"
-      @cancel="showEditor = false"
-    />
-    <p v-if="saveError" class="text-sm text-danger">{{ saveError }}</p>
+    <section v-if="featured.length" class="space-y-4">
+      <h2 class="text-2xl font-semibold">精选</h2>
+      <div class="grid gap-4 md:grid-cols-2">
+        <PostCard v-for="p in featured" :key="p.id" :post="p" />
+      </div>
+    </section>
 
-    <p v-if="loading" class="text-faint">加载中…</p>
-    <p v-else-if="errorMsg" class="text-danger">{{ errorMsg }}</p>
-    <p v-else-if="!posts.length" class="text-faint">暂无文章</p>
-
-    <div v-else class="grid gap-4">
-      <PostCard v-for="p in posts" :key="p.id" :post="p" />
-    </div>
-
-    <Pagination
-      v-if="total > 0"
-      :page="page"
-      :total-pages="totalPages"
-      @change="changePage"
-    />
+    <section v-if="latest.length">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-2xl font-semibold">最新散篇</h2>
+        <NuxtLink to="/posts" class="text-sm text-primary hover:underline">查看全部 →</NuxtLink>
+      </div>
+      <div class="grid gap-4 md:grid-cols-3">
+        <PostCard v-for="p in latest" :key="p.id" :post="p" />
+      </div>
+    </section>
   </div>
 </template>

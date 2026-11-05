@@ -66,6 +66,13 @@ async function onDelete() {
       <div class="flex items-start justify-between gap-4">
         <div>
           <h1 class="text-3xl font-bold mb-2">{{ post.title }}</h1>
+          <div v-if="post.series" class="text-sm text-faint">
+            属于系列
+            <NuxtLink :to="`/series/${post.series.slug}`" class="text-primary">
+              《{{ post.series.title }}》
+            </NuxtLink>
+            第 {{ post.series_order }} 篇
+          </div>
           <div class="flex items-center gap-4 text-sm text-faint">
             <UserBadge :user="post.author" :user-id="post.user_id" />
             <time v-if="post.created_at">

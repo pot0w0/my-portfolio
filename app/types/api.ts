@@ -3,41 +3,55 @@ export interface User {
   username: string
   role?: 'user' | 'admin'
   email?: string
-  avatar?: string
+  avatar?: string | null
   created_at?: string
 }
 
-export interface Category { id: number; name: string; slug: string }
-export interface Tag { id: number; name: string; slug: string }
+export interface Category {
+  id: number
+  name: string
+  slug: string
+}
+
+export interface Tag {
+  id: number
+  name: string
+  slug: string
+}
+
+export interface Series {
+  id: number
+  title: string
+  slug: string
+  description?: string
+  cover?: string | null
+  user_id: number
+  intro_post_id?: number | null
+  author?: User
+  post_count?: number
+  created_at?: string
+}
+
+export interface SeriesDetail {
+  series: Series
+  intro: Post | null
+  posts: Post[]
+}
 
 export interface Post {
   id: number
   title: string
   content: string
   user_id: number
+  series_id?: number | null
+  series_order?: number | null
+  series?: Series | null
   category?: Category | null
   tags?: Tag[]
   featured?: boolean
   author?: User
   created_at?: string
   updated_at?: string
-}
-
-export interface PostPayload {
-  title: string
-  content: string
-  category_id?: number | null
-  tag_ids?: number[]
-  featured?: boolean
-}
-
-export interface PostListQuery {
-  page?: number
-  limit?: number
-  user_id?: number
-  category?: string     // slug
-  tag?: string          // slug
-  featured?: boolean
 }
 
 export interface Comment {
@@ -80,10 +94,20 @@ export interface AuthResponse {
 export interface PostPayload {
   title: string
   content: string
+  category_id?: number | null
+  tag_ids?: number[]
+  featured?: boolean
+  series_id?: number | null
+  series_order?: number | null
 }
 
 export interface PostListQuery {
   page?: number
   limit?: number
   user_id?: number
+  category?: string
+  tag?: string
+  featured?: boolean
+  series_id?: number
+  standalone?: boolean
 }

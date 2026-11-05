@@ -27,9 +27,7 @@ export function useApi() {
       const message: string =
         err?.data?.message ?? err?.data?.error ?? err?.message ?? '请求失败'
 
-      if (!silent && status !== 401) {
-        toast.error(message)
-      }
+      if (!silent && status !== 401) toast.error(message)
 
       const e: ApiError = { status, message }
       throw e

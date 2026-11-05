@@ -1,9 +1,4 @@
-import type {
-  AuthResponse,
-  LoginPayload,
-  RegisterPayload,
-  User,
-} from '~/types/api'
+import type { AuthResponse, LoginPayload, RegisterPayload, User } from '~/types/api'
 
 export function useAuth() {
   const api = useApi()
@@ -33,15 +28,14 @@ export function useAuth() {
   }
 
   async function register(payload: RegisterPayload) {
-    const res = await api.post<AuthResponse>('/api/user/register', payload)
-    // 兼容：注册接口可能只返回 user 不返回 token
-    if ((res as any).token) setAuth((res as any).token, (res as any).user ?? res)
+    const res = await api.post<AuthResponse>('/api/user/register', payload, { silent: true })
+    if (res.token) setAuth(res.token, res.user)
     return res
   }
 
   async function fetchMe() {
     try {
-      const me = await api.get<User>('/api/user/me', {silent: true} as any)
+      const me = await api.get<User>('/api/user/me', undefined, { silent: true })
       user.value = me
       return me
     } catch (e: any) {
@@ -52,15 +46,12 @@ export function useAuth() {
 
   async function logout() {
     try {
-      await api.post('/api/user/logout')
-    } catch {
-      // 忽略登出接口错误，本地必须清掉
+      await api.post('/api/user/logout', undefined, { silent: true })
     } finally {
       clearAuth()
     }
   }
 
-  /** 应用启动时调用一次：恢复 token 并拉取 me */
   async function init() {
     if (initialized.value) return
     initialized.value = true
@@ -86,18 +77,8 @@ export function useAuth() {
   }
 
   return {
-    token,
-    user,
-    isLoggedIn,
-    isAdmin,
-    login,
-    register,
-    fetchMe,
-    logout,
-    init,
-    setAuth,
-    clearAuth,
-    uploadAvatar,
-    removeAvatar,
+    token, user, isLoggedIn, isAdmin,
+    login, register, fetchMe, logout, init,
+    setAuth, clearAuth, uploadAvatar, removeAvatar,
   }
 }

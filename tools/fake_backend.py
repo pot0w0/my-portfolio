@@ -107,7 +107,9 @@ comments: dict[int, dict] = {}
 categories: dict[int, dict] = {}
 tags: dict[int, dict] = {}
 post_tags: dict[int, set[int]] = {}
+series: dict[int, dict] = {}   # id -> series dict
 
+_next_sid = 1
 _next_uid = 1
 _next_pid = 1
 _next_cid = 1
@@ -302,14 +304,20 @@ def create_category(body: CategoryIn, me: dict = Depends(get_me)):
 # ===== 博客 =====
 @app.get("/api/posts", response_model=PageOut)
 def list_posts(
-    page: int = Query(1, ge=1),
-    limit: int = Query(10, ge=1, le=100),
+    page: int = 1, limit: int = 10,
     user_id: Optional[int] = None,
+    series_id: Optional[int] = None,
+    standalone: Optional[bool] = None,   # True 只看散篇
     category: Optional[str] = None,
     tag: Optional[str] = None,
     featured: Optional[bool] = None,
 ):
     items = sorted(posts.values(), key=lambda p: p["id"], reverse=True)
+    if standalone:
+        items = [p for p in items if p.get("series_id") is None]
+    if series_id is not None:
+        items = [p for p in items if p.get("series_id") == series_id]
+        items.sort(key=lambda p: p.get("series_order") or 0)   # 系列内按序号升序
     if user_id is not None:
         items = [p for p in items if p["user_id"] == user_id]
     if category:
@@ -444,3 +452,14 @@ def delete_avatar(me: dict = Depends(get_me)):
             os.remove(old_path)
     me["avatar"] = None
     return self_user(me)
+
+@app.get("/api/series/{slug}")
+def get_series(slug: str):
+    s = next((s for s in series.values() if s["slug"] == slug), None)
+    if not s:
+        raise HTTPException(404, "系列不存在")
+    posts_in = sorted(
+        [p for p in posts.values() if p.get("series_id") == s["id"]],
+        key=lambda p: p.get("series_order") or 0,
+    )
+    return {"series": series_out(s), "posts": [post_out(p) for p in posts_in]}

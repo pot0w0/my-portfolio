@@ -12,9 +12,7 @@ export function useToast() {
   function push(type: Toast['type'], message: string, duration = 4000) {
     const id = ++seq
     toasts.value.push({ id, type, message })
-    if (duration > 0) {
-      setTimeout(() => dismiss(id), duration)
-    }
+    if (duration > 0) setTimeout(() => dismiss(id), duration)
     return id
   }
 
@@ -22,9 +20,9 @@ export function useToast() {
     toasts.value = toasts.value.filter((t) => t.id !== id)
   }
 
-  const error = (msg: string, duration?: number) => push('error', msg, duration)
-  const success = (msg: string, duration?: number) => push('success', msg, duration)
-  const info = (msg: string, duration?: number) => push('info', msg, duration)
+  const error = (msg: string, d?: number) => push('error', msg, d)
+  const success = (msg: string, d?: number) => push('success', msg, d)
+  const info = (msg: string, d?: number) => push('info', msg, d)
 
   return { toasts, push, dismiss, error, success, info }
 }

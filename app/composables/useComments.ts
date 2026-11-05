@@ -2,16 +2,12 @@ import type { Comment } from '~/types/api'
 
 export function useComments() {
   const api = useApi()
-
-  function list(postId: number | string) {
-    return api.get<Comment[]>(`/api/posts/${postId}/comments`, {silent: true} as any)
+  return {
+    list: (postId: number | string) =>
+      api.get<Comment[]>(`/api/posts/${postId}/comments`),
+    create: (postId: number | string, content: string) =>
+      api.post<Comment>(`/api/posts/${postId}/comments`, { content }),
+    remove: (commentId: number | string) =>
+      api.del<void>(`/api/comments/${commentId}`),
   }
-  function create(postId: number | string, content: string) {
-    return api.post<Comment>(`/api/posts/${postId}/comments`, { content })
-  }
-  function remove(commentId: number | string) {
-    return api.del<void>(`/api/comments/${commentId}`)
-  }
-
-  return { list, create, remove }
 }

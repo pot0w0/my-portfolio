@@ -1,4 +1,4 @@
-import { computed } from 'vue'
+import type { Ref } from 'vue'
 
 export function usePagination(
   page: Ref<number>,
@@ -12,8 +12,7 @@ export function usePagination(
   const canNext = computed(() => page.value < totalPages.value)
 
   function go(p: number) {
-    const clamped = Math.min(Math.max(1, p), totalPages.value)
-    page.value = clamped
+    page.value = Math.min(Math.max(1, p), totalPages.value)
   }
 
   return { totalPages, canPrev, canNext, go }
