@@ -10,7 +10,7 @@ const emit = defineEmits<{
 const { create, update } = usePosts()
 const saving = ref(false)
 const saveError = ref('')
-const { tags, load } = useTaxonomy()
+const { tags, load, createTag } = useTaxonomy()
 const { isAdmin } = useAuth()
 const api = useApi()
 
@@ -32,6 +32,9 @@ const coverUrl = ref<string | null>(props.post?.cover ?? null)
 const coverFile = ref<File | null>(null)
 const coverPreview = ref<string | null>(null)
 const coverInput = ref<HTMLInputElement | null>(null)
+
+const newTagName = ref('')
+const creatingTag = ref(false)
 
 onMounted(async () => {
   await load()
@@ -62,6 +65,26 @@ function clearCover() {
   if (coverPreview.value) URL.revokeObjectURL(coverPreview.value)
   coverPreview.value = null
   coverUrl.value = null
+}
+
+async function addTag() {
+  const name = newTagName.value.trim()
+  if (!name) return
+  // 已存在同名标签，直接选中
+  const exist = tags.value.find(t => t.name === name)
+  if (exist) {
+    if (!tagIds.value.includes(exist.id)) tagIds.value.push(exist.id)
+    newTagName.value = ''
+    return
+  }
+  creatingTag.value = true
+  try {
+    const t = await createTag(name)
+    tagIds.value.push(t.id)
+    newTagName.value = ''
+  } catch {} finally {
+    creatingTag.value = false
+  }
 }
 
 // 正文图
@@ -182,13 +205,33 @@ async function save() {
 
     <div v-if="tags.length" class="space-y-2">
       <h4 class="text-sm font-medium text-muted">标签</h4>
-      <div class="flex flex-wrap gap-2">
-        <label v-for="t in tags" :key="t.id"
+      <div class="flex flex-wrap gap-2 items-center">
+        <label
+          v-for="t in tags" :key="t.id"
           class="flex items-center gap-1.5 text-sm px-2 py-1 rounded border cursor-pointer"
-          :class="tagIds.includes(t.id) ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border text-muted'">
+          :class="tagIds.includes(t.id) ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border text-muted'"
+        >
           <input v-model="tagIds" type="checkbox" :value="t.id" class="hidden" />
           #{{ t.name }}
         </label>
+
+        <!-- 新建标签 -->
+        <div class="flex items-center gap-1 border border-dashed border-border rounded px-2 py-0.5">
+          <span class="text-xs text-faint">#</span>
+          <input
+            v-model="newTagName"
+            placeholder="新标签"
+            class="w-20 text-sm bg-transparent outline-none"
+            :disabled="creatingTag"
+            @keydown.enter.prevent="addTag"
+          />
+          <button
+            type="button"
+            class="text-xs text-primary disabled:opacity-50"
+            :disabled="creatingTag || !newTagName.trim()"
+            @click="addTag"
+          >{{ creatingTag ? '…' : '+' }}</button>
+        </div>
       </div>
     </div>
 

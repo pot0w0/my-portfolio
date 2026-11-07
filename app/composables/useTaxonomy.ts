@@ -13,5 +13,12 @@ export function useTaxonomy() {
     } catch {}
   }
 
-  return { tags, load }
+  async function createTag(name: string, slug?: string) {
+    const api = useApi()
+    const s = slug || name.toLowerCase().trim().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
+    const t = await api.post<Tag>('/api/tags', { name: name.trim(), slug: s })
+    tags.value.push(t)
+    return t
+  }
+  return { tags, load, createTag }
 }

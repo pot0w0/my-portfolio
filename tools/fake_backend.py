@@ -137,6 +137,10 @@ class SearchOut(BaseModel):
     items: list[SearchItem]
     post_filters: dict  # 回车去 /posts 时带的 query
 
+class TagIn(BaseModel):
+    name: str
+    slug: str
+
 # ---------- 内存存储 ----------
 now = lambda: datetime.now(timezone.utc).isoformat()
 
@@ -822,3 +826,14 @@ def search(
         items=items[:limit],
         post_filters={"q": q},
     )
+
+@app.post("/api/tags", response_model=Tag, status_code=201)
+def create_tag(body: TagIn, me: dict = Depends(get_me)):
+    if not body.name.strip() or not body.slug.strip():
+        raise HTTPException(400, "名称和 slug 必填")
+    if any(t["slug"] == body.slug.strip() for t in tags.values()):
+        raise HTTPException(409, "slug 已存在")
+    if any(t["name"] == body.name.strip() for t in tags.values()):
+        raise HTTPException(409, "标签已存在")
+    t = make_tag(body.name.strip(), body.slug.strip())
+    return Tag(**t)
