@@ -137,7 +137,12 @@ async function onSeriesCreated(s: Series) {
         @click="setTag(t.slug)"># {{ t.name }}</button>
     </div>
 
-    <PostEditor v-if="showEditor" @save="onSave" @cancel="showEditor = false" />
+    <PostEditor 
+      v-if="showEditor" 
+      :post="null"
+      @save="onSave" 
+      @cancel="showEditor = false" 
+    />
 
     <p v-if="loading" class="text-faint">加载中…</p>
     <p v-else-if="errorMsg" class="text-danger">{{ errorMsg }}</p>

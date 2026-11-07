@@ -45,6 +45,7 @@ export interface Post {
   author?: User
   created_at?: string
   updated_at?: string
+  cover?: string | null
 }
 
 export interface Comment {
@@ -79,6 +80,7 @@ export interface PostPayload {
   featured?: boolean
   series_id?: number | null
   series_order?: number | null
+  cover?: string | null
 }
 
 export interface PostListQuery {

@@ -106,7 +106,6 @@ async function submit() {
     const s = await api.post<Series>('/api/series', {
       slug: slug.value.trim(),
       description: '',
-      cover: null,
       intro_post_id: introPostId,
     })
     emit('created', s)

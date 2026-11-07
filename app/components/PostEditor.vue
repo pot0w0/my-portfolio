@@ -3,13 +3,19 @@ import type { Post, PostPayload, Series } from '~/types/api'
 
 const props = defineProps<{ post?: Post | null }>()
 const emit = defineEmits<{
-  (e: 'save', payload: PostPayload): void
+  (e: 'saved', post: Post): void
   (e: 'cancel'): void
 }>()
 
+const { create, update } = usePosts()
+const saving = ref(false)
+const saveError = ref('')
 const { tags, load } = useTaxonomy()
 const { isAdmin } = useAuth()
 const api = useApi()
+
+const mediaUrl = useMediaUrl()
+const { uploadPostCover, removePostCover, uploadBodyImage } = useUpload()
 
 const title = ref(props.post?.title ?? '')
 const content = ref(props.post?.content ?? '')
@@ -20,6 +26,12 @@ const featured = ref(props.post?.featured ?? false)
 const seriesList = ref<Series[]>([])
 const seriesId = ref<number | null>(props.post?.series_id ?? null)
 const seriesOrder = ref<number | null>(props.post?.series_order ?? null)
+
+// 封面
+const coverUrl = ref<string | null>(props.post?.cover ?? null)
+const coverFile = ref<File | null>(null)
+const coverPreview = ref<string | null>(null)
+const coverInput = ref<HTMLInputElement | null>(null)
 
 onMounted(async () => {
   await load()
@@ -38,16 +50,86 @@ function onSeriesChange() {
   else seriesOrder.value = null
 }
 
-function save() {
-  if (!title.value.trim() || !content.value.trim()) return
-  emit('save', {
-    title: title.value.trim(),
-    content: content.value,
-    tag_ids: tagIds.value,
-    featured: featured.value,
-    series_id: seriesId.value,
-    series_order: seriesId.value ? seriesOrder.value : null,
+function onCoverPick(e: Event) {
+  const f = (e.target as HTMLInputElement).files?.[0]
+  if (!f) return
+  coverFile.value = f
+  if (coverPreview.value) URL.revokeObjectURL(coverPreview.value)
+  coverPreview.value = URL.createObjectURL(f)
+}
+function clearCover() {
+  coverFile.value = null
+  if (coverPreview.value) URL.revokeObjectURL(coverPreview.value)
+  coverPreview.value = null
+  coverUrl.value = null
+}
+
+// 正文图
+const bodyImgInput = ref<HTMLInputElement | null>(null)
+const uploadingImage = ref(false)
+const contentEl = ref<HTMLTextAreaElement | null>(null)
+
+async function onBodyImagePick(e: Event) {
+  const f = (e.target as HTMLInputElement).files?.[0]
+  if (!f) return
+  uploadingImage.value = true
+  try {
+    const { url } = await uploadBodyImage(f)
+    insertAtCursor(`![图片](${mediaUrl(url)})`)
+  } catch {} finally {
+    uploadingImage.value = false
+    if (bodyImgInput.value) bodyImgInput.value.value = ''
+  }
+}
+
+function insertAtCursor(text: string) {
+  const el = contentEl.value
+  if (!el) { content.value += `\n${text}\n`; return }
+  const start = el.selectionStart ?? content.value.length
+  const end = el.selectionEnd ?? content.value.length
+  content.value = content.value.slice(0, start) + text + content.value.slice(end)
+  nextTick(() => {
+    el.focus()
+    const pos = start + text.length
+    el.setSelectionRange(pos, pos)
   })
+}
+
+async function save() {
+  if (!title.value.trim() || !content.value.trim()) return
+  saving.value = true
+  saveError.value = ''
+  try {
+    const payload: PostPayload = {
+      title: title.value.trim(),
+      content: content.value,
+      tag_ids: tagIds.value,
+      featured: featured.value,
+      series_id: seriesId.value,
+      series_order: seriesId.value ? seriesOrder.value : null,
+    }
+
+    // 1. 建/改文章
+    let p: Post
+    if (props.post) {
+      p = await update(props.post.id, payload)
+    } else {
+      p = await create(payload)
+    }
+
+    // 2. 封面：有文件就传，编辑时移除就删
+    if (coverFile.value) {
+      p = await uploadPostCover(p.id, coverFile.value)
+    } else if (props.post?.cover && !coverUrl.value) {
+      p = await removePostCover(p.id)
+    }
+
+    emit('saved', p)
+  } catch (e: any) {
+    saveError.value = e?.message ?? '保存失败'
+  } finally {
+    saving.value = false
+  }
 }
 </script>
 
@@ -69,6 +151,19 @@ function save() {
       <div class="prose prose-sm max-w-none"><MDC :value="content || '（无内容）'" /></div>
     </div>
 
+    <!-- 封面选择（新建时先本地预览，保存后上传；编辑时直接上传） -->
+    <div v-if="!preview" class="space-y-2">
+      <span class="text-xs text-faint">封面图（可选）</span>
+      <div class="flex items-center gap-3">
+        <div class="w-32 aspect-video rounded border border-border overflow-hidden bg-surface-2">
+          <img v-if="coverPreview || coverUrl" :src="coverPreview || mediaUrl(coverUrl)" class="w-full h-full object-cover" />
+          <div v-else class="w-full h-full flex items-center justify-center text-faint text-xs">无封面</div>
+        </div>
+        <input ref="coverInput" type="file" accept="image/*" class="hidden" @change="onCoverPick" />
+        <button type="button" class="px-2 py-1 border border-border rounded text-xs" @click="coverInput?.click()">选择封面</button>
+        <button v-if="coverPreview || coverUrl" type="button" class="px-2 py-1 border border-danger text-danger rounded text-xs" @click="clearCover">移除</button>
+      </div>
+    </div>
     <hr class="border-border" />
 
     <div class="grid gap-3 md:grid-cols-2">
@@ -97,14 +192,29 @@ function save() {
       </div>
     </div>
 
+    <div v-if="!preview" class="flex gap-2">
+      <input ref="bodyImgInput" type="file" accept="image/*" class="hidden" @change="onBodyImagePick" />
+      <button type="button" class="px-2 py-1 border border-border rounded text-xs" @click="bodyImgInput?.click()" :disabled="uploadingImage">
+        {{ uploadingImage ? '上传中…' : '插入正文图' }}
+      </button>
+    </div>
+
     <label v-if="isAdmin" class="flex items-center gap-2 text-sm">
       <input v-model="featured" type="checkbox" /> 设为精选（首页展示）
     </label>
 
     <div class="flex gap-2 justify-end pt-2 border-t border-border">
       <button type="button" class="px-4 py-1.5 border border-border rounded hover:bg-surface-2" @click="emit('cancel')">取消</button>
-      <button type="button" class="px-4 py-1.5 bg-primary text-white rounded hover:opacity-90 disabled:opacity-50"
-        :disabled="!title.trim() || !content.trim()" @click="save">保存</button>
+      <button
+        type="button"
+        class="px-4 py-1.5 bg-primary text-white rounded hover:opacity-90 disabled:opacity-50"
+        :disabled="saving || !title.trim() || !content.trim()"
+        @click="save"
+      >
+        {{ saving ? '保存中…' : '保存' }}
+      </button>
+
+      <p v-if="saveError" class="text-sm text-danger">{{ saveError }}</p>
     </div>
   </div>
 </template>

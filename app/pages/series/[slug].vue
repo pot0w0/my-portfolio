@@ -48,14 +48,20 @@ const nextOrder = computed(() => {
   return maxOrder + 1
 })
 
-function onSeriesSave(payload: PostPayload) {
-  editorError.value = ''
-  // 强制绑到当前系列
-  saveSeriesPost({
-    ...payload,
-    series_id: series.value!.id,
-    series_order: payload.series_order ?? nextOrder.value,
-  })
+// function onSeriesSave(payload: PostPayload) {
+//   editorError.value = ''
+//   // 强制绑到当前系列
+//   saveSeriesPost({
+//     ...payload,
+//     series_id: series.value!.id,
+//     series_order: payload.series_order ?? nextOrder.value,
+//   })
+// }
+
+function onSeriesSaved(p: Post) {
+  posts.value.push(p)
+  posts.value.sort((a, b) => (a.series_order ?? 0) - (b.series_order ?? 0))
+  showEditor.value = false
 }
 
 async function saveSeriesPost(payload: PostPayload) {
@@ -94,15 +100,10 @@ async function saveSeriesPost(payload: PostPayload) {
             </div>
           </div>
 
-          <div v-if="canEdit" class="mt-3">
-            <h3 class="text-xs font-medium text-muted mb-2">管理封面</h3>
-            <CoverUploader
-              :series-id="series.id"
-              :current="series.cover"
-              @updated="onCoverUpdated"
-              @removed="onCoverUpdated"
-            />
-          </div>
+          <p v-if="canEdit" class="text-xs text-faint mt-2">
+            系列封面来自介绍文。想换封面，请
+            <NuxtLink :to="`/posts/${series.intro_post_id}`" class="text-primary hover:underline">编辑介绍文</NuxtLink>。
+          </p>
         </div>
 
         <!-- 右：标题 + 介绍文（不再显示 series.description） -->
@@ -163,8 +164,10 @@ async function saveSeriesPost(payload: PostPayload) {
             新文章将加入《{{ series.title }}》，序号 {{ nextOrder }}
           </p>
           <PostEditor
+            v-if="showEditor"
             :post="null"
-            @save="onSeriesSave"
+            :lock-series="true"
+            @saved="onSeriesSaved"
             @cancel="showEditor = false"
           />
           <p v-if="editorError" class="text-sm text-danger">{{ editorError }}</p>

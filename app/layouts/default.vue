@@ -39,18 +39,20 @@ onBeforeUnmount(() => {
         <nav class="flex items-center gap-4 text-sm">
           <NuxtLink to="/" class="hover:text-primary">首页</NuxtLink>
           <NuxtLink to="/posts" class="hover:text-primary">博客</NuxtLink>
-          <template v-if="isLoggedIn">
-            <!-- <NuxtLink to="/posts" class="hover:text-primary">写文章</NuxtLink>
-            <NuxtLink :to="`/user/${user!.id}`" class="hover:text-primary">
-              {{ user!.username }}
-            </NuxtLink> -->
-            <NuxtLink to="/user" class="hover:text-primary">我的</NuxtLink>
-            <button class="text-faint hover:text-danger" @click="onLogout">登出</button>
-          </template>
-          <template v-else>
-            <NuxtLink to="/login" class="hover:text-primary">登录</NuxtLink>
-            <NuxtLink to="/register" class="hover:text-primary">注册</NuxtLink>
-          </template>
+          <ClientOnly>
+            <template v-if="isLoggedIn">
+              <!-- <NuxtLink to="/posts" class="hover:text-primary">写文章</NuxtLink>
+              <NuxtLink :to="`/user/${user!.id}`" class="hover:text-primary">
+                {{ user!.username }}
+              </NuxtLink> -->
+              <NuxtLink to="/user" class="hover:text-primary">我的</NuxtLink>
+              <button class="text-faint hover:text-danger" @click="onLogout">登出</button>
+            </template>
+            <template v-else>
+              <NuxtLink to="/login" class="hover:text-primary">登录</NuxtLink>
+              <NuxtLink to="/register" class="hover:text-primary">注册</NuxtLink>
+            </template>
+          </ClientOnly>
           <button
             class="text-primary hover:opacity-80"
             :title="isDark ? '切换到日间' : '切换到夜间'"

@@ -24,7 +24,7 @@ const authorId = computed(() => isSeries.value ? (props.item as any).series.user
 
 <template>
   <article class="bg-surface border border-border rounded-lg overflow-hidden hover:shadow-md transition">
-    <NuxtLink v-if="isSeries && cover" :to="to" class="block aspect-video overflow-hidden">
+    <NuxtLink v-if="cover" :to="to" class="block aspect-video overflow-hidden">
       <img :src="mediaUrl(cover)" class="w-full h-full object-cover" alt="" />
     </NuxtLink>
 

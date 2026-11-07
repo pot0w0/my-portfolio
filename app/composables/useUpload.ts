@@ -20,15 +20,15 @@ export function useUpload() {
     return user
   }
 
-  async function uploadSeriesCover(seriesId: number, file: File) {
-    const form = new FormData()
-    form.append('file', file)
-    return api.post<Series>(`/api/series/${seriesId}/cover`, form)
-  }
+  // async function uploadSeriesCover(seriesId: number, file: File) {
+  //   const form = new FormData()
+  //   form.append('file', file)
+  //   return api.post<Series>(`/api/series/${seriesId}/cover`, form)
+  // }
 
-  async function removeSeriesCover(seriesId: number) {
-    return api.del<Series>(`/api/series/${seriesId}/cover`)
-  }
+  // async function removeSeriesCover(seriesId: number) {
+  //   return api.del<Series>(`/api/series/${seriesId}/cover`)
+  // }
 
   async function uploadPostImage(postId: number, file: File) {
     const form = new FormData()
@@ -36,9 +36,25 @@ export function useUpload() {
     return api.post<{ url: string }>(`/api/posts/${postId}/images`, form)
   }
 
+  async function uploadPostCover(postId: number, file: File) {
+    const form = new FormData()
+    form.append('file', file)
+    return api.post<Post>(`/api/posts/${postId}/cover`, form)
+  }
+
+  async function removePostCover(postId: number) {
+    return api.del<Post>(`/api/posts/${postId}/cover`)
+  }
+
+  async function uploadBodyImage(file: File) {
+    const form = new FormData()
+    form.append('file', file)
+    return api.post<{ url: string }>('/api/uploads/images', form)
+  }
+
   return {
     uploadAvatar, removeAvatar,
-    uploadSeriesCover, removeSeriesCover,
     uploadPostImage,
+    uploadPostCover, removePostCover, uploadBodyImage
   }
 }

@@ -56,8 +56,11 @@ class Series(BaseModel):
 class SeriesIn(BaseModel):
     slug: str
     description: str = ""
-    cover: Optional[str] = None
     intro_post_id: Optional[int] = None   # 建系列时必填（代码里校验），改系列时可选
+
+class PostImage(BaseModel):
+    id: int
+    url: str
 
 class Post(BaseModel):
     id: int
@@ -72,6 +75,8 @@ class Post(BaseModel):
     author: Optional[UserPublic] = None
     created_at: str
     updated_at: str
+    cover: Optional[str] = None          # 封面图 URL
+    images: list[PostImage] = []         # 正文图
 
 class PostIn(BaseModel):
     title: str
@@ -80,6 +85,7 @@ class PostIn(BaseModel):
     featured: bool = False
     series_id: Optional[int] = None
     series_order: Optional[int] = None
+    cover: Optional[str] = None
 
 class LoginIn(BaseModel):
     username: str
@@ -124,6 +130,7 @@ tokens: dict[str, int] = {}
 comments: dict[int, dict] = {}
 tags: dict[int, dict] = {}
 post_tags: dict[int, set[int]] = {}
+posts: dict[int, dict]
 series: dict[int, dict] = {}
 
 _next_uid = 1
@@ -190,10 +197,9 @@ def make_series(user_id: int, slug: str,
     global _next_sid
     s = {
         "id": _next_sid, "slug": slug,
-        "description": description, "cover": cover,
+        "description": description,
         "user_id": user_id, "intro_post_id": intro_post_id,
         "created_at": now(),
-        # 注意：不存 title
     }
     series[s["id"]] = s
     _next_sid += 1
@@ -204,9 +210,11 @@ def series_out(s: dict) -> Series:
     count = sum(1 for p in posts.values() if p.get("series_id") == s["id"])
     intro = posts.get(s.get("intro_post_id")) if s.get("intro_post_id") else None
     title = intro["title"] if intro else "（无标题系列）"
+    cover = intro.get("cover") if intro else None
     return Series(
         id=s["id"], title=title, slug=s["slug"],
-        description=s.get("description", ""), cover=s.get("cover"),
+        description=s.get("description", ""),
+        cover=cover,
         user_id=s["user_id"], intro_post_id=s.get("intro_post_id"),
         author=public_user(author) if author else None,
         post_count=count, created_at=s["created_at"],
@@ -216,14 +224,17 @@ def make_post(user_id: int, title: str, content: str,
               tag_ids: list[int] | None = None,
               featured: bool = False,
               series_id: int | None = None,
-              series_order: int | None = None) -> dict:
+              series_order: int | None = None,
+              cover: str | None = None) -> dict:
     global _next_pid
     ts = now()
     p = {
         "id": _next_pid, "title": title, "content": content,
         "user_id": user_id,
         "series_id": series_id, "series_order": series_order,
-        "featured": featured, "created_at": ts, "updated_at": ts,
+        "featured": featured,
+        "cover": cover,
+        "created_at": ts, "updated_at": ts,
     }
     posts[p["id"]] = p
     if tag_ids:
@@ -241,6 +252,7 @@ def post_out(p: dict) -> Post:
         series=series_out(s) if s else None,
         tags=[Tag(**tags[t]) for t in tids if t in tags],
         featured=bool(p.get("featured")),
+        cover=p.get("cover"),
         author=public_user(author) if author else None,
         created_at=p["created_at"], updated_at=p["updated_at"],
     )
@@ -340,7 +352,7 @@ p1 = make_post(alice["id"], "Nuxt 从零开始",
 
 # 再建系列，intro_post_id 指向 p1
 s1 = make_series(alice["id"], "nuxt-from-scratch",
-                 "从零写一个 Nuxt 前端，一步步来。", cover=None,
+                 "从零写一个 Nuxt 前端，一步步来。",
                  intro_post_id=p1["id"])
 
 # 系列正文文章
@@ -444,18 +456,14 @@ def create_series(body: SeriesIn, me: dict = Depends(get_me)):
         raise HTTPException(400, "slug 必填")
     if any(s["slug"] == body.slug for s in series.values()):
         raise HTTPException(409, "slug 已存在")
-
     if not body.intro_post_id:
         raise HTTPException(400, "必须指定介绍文")
-
     intro = posts.get(body.intro_post_id)
     if not intro:
         raise HTTPException(400, "介绍文不存在")
     if intro["user_id"] != me["id"] and me["role"] != "admin":
         raise HTTPException(403, "介绍文不是你的文章")
-
-    s = make_series(me["id"], body.slug.strip(),
-                    body.description, body.cover, body.intro_post_id)
+    s = make_series(me["id"], body.slug.strip(), body.description, body.intro_post_id)
     return series_out(s)
 
 @app.put("/api/series/{series_id}", response_model=Series)
@@ -465,22 +473,16 @@ def update_series(series_id: int, body: SeriesIn, me: dict = Depends(get_me)):
         raise HTTPException(404, "系列不存在")
     if s["user_id"] != me["id"] and me["role"] != "admin":
         raise HTTPException(403, "无权修改")
-
     if body.intro_post_id is not None:
-        if not body.intro_post_id:
-            raise HTTPException(400, "介绍文不能为空")
         intro = posts.get(body.intro_post_id)
         if not intro:
             raise HTTPException(400, "介绍文不存在")
         if intro["user_id"] != me["id"] and me["role"] != "admin":
             raise HTTPException(403, "介绍文不是你的文章")
         s["intro_post_id"] = body.intro_post_id
-        # 不改 s["title"]——根本没这个字段
-
     if body.slug:
         s["slug"] = body.slug.strip()
     s["description"] = body.description
-    s["cover"] = body.cover
     return series_out(s)
 
 @app.delete("/api/series/{series_id}", status_code=204)
@@ -542,7 +544,8 @@ def create_post(body: PostIn, me: dict = Depends(get_me)):
         raise HTTPException(400, "系列不存在")
     p = make_post(me["id"], body.title, body.content,
                   tag_ids=body.tag_ids, featured=body.featured,
-                  series_id=body.series_id, series_order=body.series_order)
+                  series_id=body.series_id, series_order=body.series_order,
+                  cover=body.cover)
     return post_out(p)
 
 def ensure_can_modify(p: dict, me: dict):
@@ -565,6 +568,8 @@ def update_post(post_id: int, body: PostIn, me: dict = Depends(get_me)):
     p["series_id"] = body.series_id
     p["series_order"] = body.series_order
     p["updated_at"] = now()
+    if body.cover is not None:
+        p["cover"] = body.cover
     post_tags[p["id"]] = set(body.tag_ids)
     return post_out(p)
 
@@ -583,6 +588,39 @@ def delete_post(post_id: int, me: dict = Depends(get_me)):
     del posts[post_id]
     post_tags.pop(post_id, None)
     return None
+
+# @app.post("/api/posts/{post_id}/cover", response_model=Post)
+# async def upload_post_cover(post_id: int, file: UploadFile = File(...), me: dict = Depends(get_me)):
+#     p = posts.get(post_id)
+#     if not p:
+#         raise HTTPException(404, "文章不存在")
+#     if p["user_id"] != me["id"] and me["role"] != "admin":
+#         raise HTTPException(403, "无权修改")
+#     data = await file.read()
+#     p["cover"] = save_image(data, file.content_type, "posts", p.get("cover"))
+#     p["updated_at"] = now()
+#     return post_out(p)
+
+# @app.delete("/api/posts/{post_id}/cover", response_model=Post)
+# def delete_post_cover(post_id: int, me: dict = Depends(get_me)):
+#     p = posts.get(post_id)
+#     if not p:
+#         raise HTTPException(404, "文章不存在")
+#     if p["user_id"] != me["id"] and me["role"] != "admin":
+#         raise HTTPException(403, "无权修改")
+#     old = p.get("cover")
+#     if old and old.startswith("/static/posts/"):
+#         path = os.path.join(UPLOAD_ROOT, old.removeprefix("/static/"))
+#         if os.path.isfile(path):
+#             os.remove(path)
+#     p["cover"] = None
+#     return post_out(p)
+
+@app.post("/api/uploads/images", response_model=PostImageOut)
+async def upload_generic_image(file: UploadFile = File(...), me: dict = Depends(get_me)):
+    data = await file.read()
+    url = save_image(data, file.content_type, "posts", None)
+    return PostImageOut(url=url)
 
 # ===== 评论 =====
 @app.get("/api/posts/{post_id}/comments", response_model=list[Comment])
@@ -617,27 +655,26 @@ def delete_comment(comment_id: int, me: dict = Depends(get_me)):
     return None
 
 # ===== 头像 =====
-# ===== 头像 =====
 @app.post("/api/user/me/avatar", response_model=User)
 async def upload_avatar(file: UploadFile = File(...), me: dict = Depends(get_me)):
     data = await file.read()
     me["avatar"] = save_image(data, file.content_type, "avatars", me.get("avatar"))
     return self_user(me)
 
-@app.post("/api/series/{series_id}/cover", response_model=Series)
-async def upload_series_cover(
-    series_id: int,
-    file: UploadFile = File(...),
-    me: dict = Depends(get_me),
-):
-    s = series.get(series_id)
-    if not s:
-        raise HTTPException(404, "系列不存在")
-    if s["user_id"] != me["id"] and me["role"] != "admin":
-        raise HTTPException(403, "无权修改")
-    data = await file.read()
-    s["cover"] = save_image(data, file.content_type, "series", s.get("cover"))
-    return series_out(s)
+# @app.post("/api/series/{series_id}/cover", response_model=Series)
+# async def upload_series_cover(
+#     series_id: int,
+#     file: UploadFile = File(...),
+#     me: dict = Depends(get_me),
+# ):
+#     s = series.get(series_id)
+#     if not s:
+#         raise HTTPException(404, "系列不存在")
+#     if s["user_id"] != me["id"] and me["role"] != "admin":
+#         raise HTTPException(403, "无权修改")
+#     data = await file.read()
+#     s["cover"] = save_image(data, file.content_type, "series", s.get("cover"))
+#     return series_out(s)
 
 @app.post("/api/posts/{post_id}/images", response_model=PostImageOut)
 async def upload_post_image(
@@ -664,17 +701,49 @@ def delete_avatar(me: dict = Depends(get_me)):
     me["avatar"] = None
     return self_user(me)
 
-@app.delete("/api/series/{series_id}/cover", response_model=Series)
-def delete_series_cover(series_id: int, me: dict = Depends(get_me)):
-    s = series.get(series_id)
-    if not s:
-        raise HTTPException(404, "系列不存在")
-    if s["user_id"] != me["id"] and me["role"] != "admin":
+# @app.delete("/api/series/{series_id}/cover", response_model=Series)
+# def delete_series_cover(series_id: int, me: dict = Depends(get_me)):
+#     s = series.get(series_id)
+#     if not s:
+#         raise HTTPException(404, "系列不存在")
+#     if s["user_id"] != me["id"] and me["role"] != "admin":
+#         raise HTTPException(403, "无权修改")
+#     old = s.get("cover")
+#     if old and old.startswith("/static/series/"):
+#         p = os.path.join(UPLOAD_ROOT, old.removeprefix("/static/"))
+#         if os.path.isfile(p):
+#             os.remove(p)
+#     s["cover"] = None
+#     return series_out(s)
+
+@app.post("/api/posts/{post_id}/cover", response_model=Post)
+async def upload_post_cover(
+    post_id: int,
+    file: UploadFile = File(...),
+    me: dict = Depends(get_me),
+):
+    p = posts.get(post_id)
+    if not p:
+        raise HTTPException(404, "文章不存在")
+    if p["user_id"] != me["id"] and me["role"] != "admin":
         raise HTTPException(403, "无权修改")
-    old = s.get("cover")
-    if old and old.startswith("/static/series/"):
-        p = os.path.join(UPLOAD_ROOT, old.removeprefix("/static/"))
-        if os.path.isfile(p):
-            os.remove(p)
-    s["cover"] = None
-    return series_out(s)
+    data = await file.read()
+    p["cover"] = save_image(data, file.content_type, "posts", p.get("cover"))
+    p["updated_at"] = now()
+    return post_out(p)
+
+@app.delete("/api/posts/{post_id}/cover", response_model=Post)
+def delete_post_cover(post_id: int, me: dict = Depends(get_me)):
+    p = posts.get(post_id)
+    if not p:
+        raise HTTPException(404, "文章不存在")
+    if p["user_id"] != me["id"] and me["role"] != "admin":
+        raise HTTPException(403, "无权修改")
+    old = p.get("cover")
+    if old and old.startswith("/static/posts/"):
+        path = os.path.join(UPLOAD_ROOT, old.removeprefix("/static/"))
+        if os.path.isfile(path):
+            os.remove(path)
+    p["cover"] = None
+    p["updated_at"] = now()
+    return post_out(p)
