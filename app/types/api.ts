@@ -91,6 +91,7 @@ export interface PostListQuery {
   featured?: boolean
   series_id?: number
   standalone?: boolean
+  q?: string
 }
 
 export interface ProfilePayload {

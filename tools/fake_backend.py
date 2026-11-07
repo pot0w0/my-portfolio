@@ -468,7 +468,12 @@ def create_series(body: SeriesIn, me: dict = Depends(get_me)):
         raise HTTPException(400, "介绍文不存在")
     if intro["user_id"] != me["id"] and me["role"] != "admin":
         raise HTTPException(403, "介绍文不是你的文章")
-    s = make_series(me["id"], body.slug.strip(), body.description, body.intro_post_id)
+    s = make_series(
+        me["id"],
+        body.slug.strip(),
+        body.description,
+        intro_post_id=body.intro_post_id,   # ← 关键字传，别用位置
+    )
     return series_out(s)
 
 @app.put("/api/series/{series_id}", response_model=Series)
@@ -513,8 +518,18 @@ def list_posts(
     standalone: Optional[bool] = None,
     tag: Optional[str] = None,
     featured: Optional[bool] = None,
+    q: Optional[str] = None,          # ← 新增：搜索关键词
 ):
     items = sorted(posts.values(), key=lambda p: p["id"], reverse=True)
+
+    if q:
+        kw = q.strip().lower()
+        if kw:
+            items = [
+                p for p in items
+                if kw in p["title"].lower() or kw in p["content"].lower()
+            ]
+
     if standalone:
         items = [p for p in items if p.get("series_id") is None]
     if series_id is not None:
@@ -527,6 +542,7 @@ def list_posts(
         items = [p for p in items if t["id"] in post_tags.get(p["id"], set())]
     if featured is not None:
         items = [p for p in items if bool(p.get("featured")) == featured]
+
     total = len(items)
     start = (page - 1) * limit
     return PageOut(data=[post_out(p) for p in items[start:start+limit]],
