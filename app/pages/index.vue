@@ -132,8 +132,12 @@ async function onSave(payload: PostPayload) {
     <p v-else-if="errorMsg" class="text-danger">{{ errorMsg }}</p>
     <p v-else-if="!posts.length" class="text-faint">暂无文章</p>
 
-    <div v-else class="grid gap-4">
-      <PostCard v-for="p in posts" :key="p.id" :post="p" />
+    <div v-else class="flex flex-col gap-4">
+      <ContentCard
+        v-for="p in posts"
+        :key="p.id"
+        :item="{ kind: 'post', post: p }"
+      />
     </div>
 
     <Pagination

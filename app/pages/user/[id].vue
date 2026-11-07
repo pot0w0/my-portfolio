@@ -65,8 +65,12 @@ onMounted(async () => {
       <section>
         <h2 class="text-xl font-semibold mb-4">TA 的文章</h2>
         <p v-if="!posts.length" class="text-faint">暂无文章</p>
-        <div v-else class="grid gap-4">
-          <PostCard v-for="p in posts" :key="p.id" :post="p" />
+        <div v-else class="flex flex-col gap-4">
+          <ContentCard
+            v-for="p in posts"
+            :key="p.id"
+            :item="{ kind: 'post', post: p }"
+          />
         </div>
       </section>
     </template>

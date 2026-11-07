@@ -76,9 +76,16 @@ export function useAuth() {
     return res
   }
 
+  async function updateProfile(payload: ProfilePayload) {
+    const res = await api.put<User>('/api/user/me', payload)
+    user.value = res
+    return res
+  }
+
   return {
     token, user, isLoggedIn, isAdmin,
     login, register, fetchMe, logout, init,
     setAuth, clearAuth, uploadAvatar, removeAvatar,
+    updateProfile, 
   }
 }

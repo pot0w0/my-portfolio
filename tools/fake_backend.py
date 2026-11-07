@@ -120,6 +120,11 @@ class CommentIn(BaseModel):
 class PostImageOut(BaseModel):
     url: str
 
+class ProfileIn(BaseModel):
+    username: Optional[str] = None
+    email: Optional[str] = None
+    password: Optional[str] = None   # 明文，假后端
+
 # ---------- 内存存储 ----------
 now = lambda: datetime.now(timezone.utc).isoformat()
 
@@ -747,3 +752,22 @@ def delete_post_cover(post_id: int, me: dict = Depends(get_me)):
     p["cover"] = None
     p["updated_at"] = now()
     return post_out(p)
+
+@app.put("/api/user/me", response_model=User)
+def update_me(body: ProfileIn, me: dict = Depends(get_me)):
+    if body.username is not None:
+        new_name = body.username.strip()
+        if not new_name:
+            raise HTTPException(400, "用户名不能为空")
+        if new_name != me["username"] and new_name in usernames:
+            raise HTTPException(409, "用户名已存在")
+        usernames.pop(me["username"], None)
+        me["username"] = new_name
+        usernames[new_name] = me["id"]
+    if body.email is not None:
+        me["email"] = body.email.strip() or None
+    if body.password:
+        if len(body.password) < 6:
+            raise HTTPException(400, "密码至少 6 位")
+        me["password"] = body.password
+    return self_user(me)

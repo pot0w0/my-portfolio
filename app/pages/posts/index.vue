@@ -148,7 +148,7 @@ async function onSeriesCreated(s: Series) {
     <p v-else-if="errorMsg" class="text-danger">{{ errorMsg }}</p>
     <p v-else-if="!items.length" class="text-faint">暂无内容</p>
 
-    <div v-else class="grid gap-4 md:grid-cols-2">
+    <div v-else class="flex flex-col gap-4">
       <ContentCard
         v-for="it in items"
         :key="it.kind === 'series' ? `s-${it.series.id}` : `p-${it.post.id}`"

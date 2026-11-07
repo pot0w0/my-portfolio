@@ -92,3 +92,9 @@ export interface PostListQuery {
   series_id?: number
   standalone?: boolean
 }
+
+export interface ProfilePayload {
+  username?: string
+  email?: string
+  password?: string
+}
