@@ -54,11 +54,10 @@ class Series(BaseModel):
     created_at: str
 
 class SeriesIn(BaseModel):
-    title: str
     slug: str
     description: str = ""
     cover: Optional[str] = None
-    intro_post_id: Optional[int] = None
+    intro_post_id: Optional[int] = None   # 建系列时必填（代码里校验），改系列时可选
 
 class Post(BaseModel):
     id: int
@@ -185,15 +184,16 @@ def make_tag(name: str, slug: str) -> dict:
     _next_tag += 1
     return t
 
-def make_series(user_id: int, title: str, slug: str,
+def make_series(user_id: int, slug: str,
                 description: str = "", cover: str | None = None,
                 intro_post_id: int | None = None) -> dict:
     global _next_sid
     s = {
-        "id": _next_sid, "title": title, "slug": slug,
+        "id": _next_sid, "slug": slug,
         "description": description, "cover": cover,
         "user_id": user_id, "intro_post_id": intro_post_id,
         "created_at": now(),
+        # 注意：不存 title
     }
     series[s["id"]] = s
     _next_sid += 1
@@ -202,8 +202,10 @@ def make_series(user_id: int, title: str, slug: str,
 def series_out(s: dict) -> Series:
     author = users.get(s["user_id"])
     count = sum(1 for p in posts.values() if p.get("series_id") == s["id"])
+    intro = posts.get(s.get("intro_post_id")) if s.get("intro_post_id") else None
+    title = intro["title"] if intro else "（无标题系列）"
     return Series(
-        id=s["id"], title=s["title"], slug=s["slug"],
+        id=s["id"], title=title, slug=s["slug"],
         description=s.get("description", ""), cover=s.get("cover"),
         user_id=s["user_id"], intro_post_id=s.get("intro_post_id"),
         author=public_user(author) if author else None,
@@ -331,22 +333,25 @@ tag_vue = make_tag("Vue", "vue")
 tag_nuxt = make_tag("Nuxt", "nuxt")
 tag_note = make_tag("随笔", "note")
 
-# 一个系列：alice 的 "Nuxt 从零开始"
-s1 = make_series(alice["id"], "Nuxt 从零开始", "nuxt-from-scratch",
-                 "从零写一个 Nuxt 前端，一步步来。", cover=None)
-
-p1 = make_post(alice["id"], "Hello World",
+# 先建介绍文（它的标题会成为系列标题）
+p1 = make_post(alice["id"], "Nuxt 从零开始",
                "# 你好\n\n这是**第一篇**文章。\n\n- 支持列表\n- 支持 `code`",
                tag_ids=[tag_vue["id"]], featured=True)
+
+# 再建系列，intro_post_id 指向 p1
+s1 = make_series(alice["id"], "nuxt-from-scratch",
+                 "从零写一个 Nuxt 前端，一步步来。", cover=None,
+                 intro_post_id=p1["id"])
+
+# 系列正文文章
 p2 = make_post(alice["id"], "Markdown 测试",
                "## 二级标题\n\n```python\nprint('hi')\n```",
                tag_ids=[tag_nuxt["id"]],
                series_id=s1["id"], series_order=1)
+
 p3 = make_post(bob["id"], "Bob 的文章",
                "我是 Bob。\n\n> 引用一段话。",
                tag_ids=[tag_note["id"]])
-
-s1["intro_post_id"] = p1["id"]   # p1 当系列介绍文（它仍是独立文章）
 
 make_comment(p1["id"], bob["id"], "写得不错！")
 make_comment(p1["id"], alice["id"], "谢谢～")
@@ -435,11 +440,21 @@ def get_series(slug: str):
 
 @app.post("/api/series", response_model=Series, status_code=201)
 def create_series(body: SeriesIn, me: dict = Depends(get_me)):
-    if not body.title.strip() or not body.slug.strip():
-        raise HTTPException(400, "标题和 slug 必填")
+    if not body.slug.strip():
+        raise HTTPException(400, "slug 必填")
     if any(s["slug"] == body.slug for s in series.values()):
         raise HTTPException(409, "slug 已存在")
-    s = make_series(me["id"], body.title.strip(), body.slug.strip(),
+
+    if not body.intro_post_id:
+        raise HTTPException(400, "必须指定介绍文")
+
+    intro = posts.get(body.intro_post_id)
+    if not intro:
+        raise HTTPException(400, "介绍文不存在")
+    if intro["user_id"] != me["id"] and me["role"] != "admin":
+        raise HTTPException(403, "介绍文不是你的文章")
+
+    s = make_series(me["id"], body.slug.strip(),
                     body.description, body.cover, body.intro_post_id)
     return series_out(s)
 
@@ -450,9 +465,22 @@ def update_series(series_id: int, body: SeriesIn, me: dict = Depends(get_me)):
         raise HTTPException(404, "系列不存在")
     if s["user_id"] != me["id"] and me["role"] != "admin":
         raise HTTPException(403, "无权修改")
-    s.update(title=body.title.strip(), slug=body.slug.strip(),
-             description=body.description, cover=body.cover,
-             intro_post_id=body.intro_post_id)
+
+    if body.intro_post_id is not None:
+        if not body.intro_post_id:
+            raise HTTPException(400, "介绍文不能为空")
+        intro = posts.get(body.intro_post_id)
+        if not intro:
+            raise HTTPException(400, "介绍文不存在")
+        if intro["user_id"] != me["id"] and me["role"] != "admin":
+            raise HTTPException(403, "介绍文不是你的文章")
+        s["intro_post_id"] = body.intro_post_id
+        # 不改 s["title"]——根本没这个字段
+
+    if body.slug:
+        s["slug"] = body.slug.strip()
+    s["description"] = body.description
+    s["cover"] = body.cover
     return series_out(s)
 
 @app.delete("/api/series/{series_id}", status_code=204)
@@ -546,6 +574,12 @@ def delete_post(post_id: int, me: dict = Depends(get_me)):
     if not p:
         raise HTTPException(404, "文章不存在")
     ensure_can_modify(p, me)
+
+    # 检查是否被系列引用为介绍文
+    used_by = next((s for s in series.values() if s.get("intro_post_id") == post_id), None)
+    if used_by:
+        raise HTTPException(409, f"该文章是系列《{used_by['slug']}》的介绍文，请先更换介绍文再删除")
+
     del posts[post_id]
     post_tags.pop(post_id, None)
     return None

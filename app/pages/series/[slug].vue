@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { Post, Series } from '~/types/api'
+import type { Post, PostPayload, Series } from '~/types/api'
 
 const route = useRoute()
 const api = useApi()
@@ -10,14 +10,22 @@ const posts = ref<Post[]>([])
 const loading = ref(true)
 const errorMsg = ref('')
 const { user, isAdmin } = useAuth()
+const defaultIntroText = '不想写介绍文了，好懒喵~'
+const showEditor = ref(false)
+const saving = ref(false)
+const editorError = ref('')
+
 const canEdit = computed(() =>
   !!user.value && !!series.value &&
   (user.value.id === series.value.user_id || isAdmin.value)
 )
 
+const mediaUrl = useMediaUrl()
+
 function onCoverUpdated(s: Series) {
   series.value = s
 }
+
 onMounted(async () => {
   try {
     const res = await api.get<{ series: Series; intro: Post | null; posts: Post[] }>(
@@ -34,69 +42,150 @@ onMounted(async () => {
     loading.value = false
   }
 })
+
+const nextOrder = computed(() => {
+  const maxOrder = posts.value.reduce((m, p) => Math.max(m, p.series_order ?? 0), 0)
+  return maxOrder + 1
+})
+
+function onSeriesSave(payload: PostPayload) {
+  editorError.value = ''
+  // 强制绑到当前系列
+  saveSeriesPost({
+    ...payload,
+    series_id: series.value!.id,
+    series_order: payload.series_order ?? nextOrder.value,
+  })
+}
+
+async function saveSeriesPost(payload: PostPayload) {
+  saving.value = true
+  try {
+    const p = await api.post<Post>('/api/posts', payload)
+    posts.value.push(p)
+    posts.value.sort((a, b) => (a.series_order ?? 0) - (b.series_order ?? 0))
+    showEditor.value = false
+  } catch (e: any) {
+    editorError.value = e?.message ?? '保存失败'
+  } finally {
+    saving.value = false
+  }
+}
 </script>
 
 <template>
-  <div class="space-y-8">
+  <div class="max-w-5xl mx-auto space-y-10">
     <p v-if="loading" class="text-faint">加载中…</p>
     <p v-else-if="errorMsg" class="text-danger">{{ errorMsg }}</p>
 
     <template v-else-if="series">
-      <!-- 系列头部 -->
-      <header class="space-y-2">
-        <h1 class="text-3xl font-bold">{{ series.title }}</h1>
-        <p v-if="series.description" class="text-muted">{{ series.description }}</p>
-        <p class="text-sm text-faint">
-          {{ posts.length }} 篇 ·
-          <NuxtLink :to="`/user/${series.user_id}`" class="text-primary">
-            {{ series.author?.username }}
-          </NuxtLink>
-        </p>
-      </header>
+      <section class="grid md:grid-cols-[280px_1fr] gap-6 items-start">
+        <!-- 左：封面（不变） -->
+        <div class="relative">
+          <div class="aspect-[3/4] rounded-xl overflow-hidden border border-border bg-surface-2">
+            <img
+              v-if="series.cover"
+              :src="mediaUrl(series.cover)"
+              :alt="series.title"
+              class="w-full h-full object-cover"
+            />
+            <div v-else class="w-full h-full flex items-center justify-center text-faint text-sm">
+              暂无封面
+            </div>
+          </div>
 
-      <section v-if="canEdit">
-        <h3 class="text-sm font-medium text-muted mb-2">管理封面</h3>
-        <CoverUploader :series-id="series.id" :current="series.cover" @updated="onCoverUpdated" @removed="onCoverUpdated" />
-      </section>
+          <div v-if="canEdit" class="mt-3">
+            <h3 class="text-xs font-medium text-muted mb-2">管理封面</h3>
+            <CoverUploader
+              :series-id="series.id"
+              :current="series.cover"
+              @updated="onCoverUpdated"
+              @removed="onCoverUpdated"
+            />
+          </div>
+        </div>
 
-      <!-- 介绍文（系列描述本身就是一篇文章） -->
-      <section v-if="intro" class="bg-surface border border-border rounded-lg p-6">
-        <div class="flex items-center justify-between mb-3">
-          <h2 class="text-xl font-semibold">{{ intro.title }}</h2>
-          <NuxtLink :to="`/posts/${intro.id}`" class="text-sm text-primary hover:underline">
-            单独打开 →
+        <!-- 右：标题 + 介绍文（不再显示 series.description） -->
+        <div class="space-y-4">
+          <header class="space-y-2">
+            <h1 class="text-3xl font-bold leading-tight">{{ series.title }}</h1>
+            <p class="text-sm text-faint">
+              {{ posts.length }} 篇 ·
+              <NuxtLink :to="`/user/${series.user_id}`" class="text-primary hover:underline">
+                {{ series.author?.username }}
+              </NuxtLink>
+            </p>
+          </header>
+
+          <!-- 介绍文：系列的"描述"就是这篇文章 -->
+          <div v-if="intro" class="relative">
+            <div class="max-h-72 overflow-hidden prose prose-slate max-w-none">
+              <MDC v-if="intro.content?.trim()" :value="intro.content" />
+              <p v-else class="text-muted">
+                {{ defaultIntroText }}
+              </p>
+            </div>
+            <!-- 渐隐 + 阅读完整介绍 只在有内容时显示 -->
+            <template v-if="intro.content?.trim()">
+              <div class="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-surface to-transparent" />
+              <div class="mt-2">
+                <NuxtLink :to="`/posts/${intro.id}`" class="text-sm text-primary hover:underline">阅读完整介绍 →</NuxtLink>
+              </div>
+            </template>
+          </div>
+
+          <NuxtLink
+            v-if="posts[0]"
+            :to="`/posts/${posts[0].id}`"
+            class="inline-block px-5 py-2.5 bg-primary text-white rounded-lg hover:opacity-90 transition"
+          >
+            开始阅读 →
           </NuxtLink>
         </div>
-        <article class="prose prose-slate max-w-none">
-          <MDC :value="intro.content" />
-        </article>
       </section>
 
-      <!-- 开始阅读 -->
-      <NuxtLink
-        v-if="posts[0]"
-        :to="`/posts/${posts[0].id}`"
-        class="inline-block px-4 py-2 bg-primary text-white rounded hover:opacity-90"
-      >
-        开始阅读 →
-      </NuxtLink>
-
-      <!-- 文章目录 -->
-      <ol v-if="posts.length" class="space-y-2">
-        <li v-for="(p, i) in posts" :key="p.id">
-          <NuxtLink
-            :to="`/posts/${p.id}`"
-            class="flex items-center gap-3 p-3 rounded border border-border bg-surface hover:bg-surface-2 transition"
+      <!-- 文章目录（不变） -->
+      <section class="space-y-3">
+        <div class="flex items-center justify-between">
+          <h2 class="text-lg font-semibold">文章目录</h2>
+          <button
+            v-if="canEdit"
+            class="px-3 py-1.5 border border-border rounded text-sm hover:bg-surface-2"
+            @click="showEditor = !showEditor"
           >
-            <span class="text-faint text-sm w-6 text-right">{{ i + 1 }}</span>
-            <span class="flex-1">{{ p.title }}</span>
-            <span v-if="p.created_at" class="text-xs text-faint">
-              {{ new Date(p.created_at).toLocaleDateString() }}
-            </span>
-          </NuxtLink>
-        </li>
-      </ol>
-      <p v-else class="text-faint">系列还没有正文</p>
+            {{ showEditor ? '收起' : '新建系列文章' }}
+          </button>
+        </div>
+
+        <!-- 编辑器：预置系列，序号自动 -->
+        <div v-if="showEditor" class="space-y-2">
+          <p class="text-sm text-faint">
+            新文章将加入《{{ series.title }}》，序号 {{ nextOrder }}
+          </p>
+          <PostEditor
+            :post="null"
+            @save="onSeriesSave"
+            @cancel="showEditor = false"
+          />
+          <p v-if="editorError" class="text-sm text-danger">{{ editorError }}</p>
+        </div>
+        <ol v-if="posts.length" class="space-y-2">
+          <li v-for="(p, i) in posts" :key="p.id">
+            <NuxtLink
+              :to="`/posts/${p.id}`"
+              class="flex items-center gap-3 p-3 rounded-lg border border-border
+                     bg-surface hover:bg-surface-2 transition"
+            >
+              <span class="text-faint text-sm w-6 text-right">{{ i + 1 }}</span>
+              <span class="flex-1">{{ p.title }}</span>
+              <span v-if="p.created_at" class="text-xs text-faint">
+                {{ new Date(p.created_at).toLocaleDateString() }}
+              </span>
+            </NuxtLink>
+          </li>
+        </ol>
+        <p v-else class="text-faint">系列还没有正文</p>
+      </section>
     </template>
   </div>
 </template>

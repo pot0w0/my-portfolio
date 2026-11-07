@@ -10,12 +10,13 @@ const emit = defineEmits<{
 const api = useApi()
 const { user } = useAuth()
 
-const title = ref('')
-const slug = ref('')
-const description = ref('')
-const cover = ref('')
-const introPostId = ref<number | null>(null)
+// 介绍文来源
+const mode = ref<'existing' | 'new'>('existing')
+const selectedIntroId = ref<number | null>(null)
+const newTitle = ref('')
+const newContent = ref('')
 
+const slug = ref('')
 const myPosts = ref<Post[]>([])
 const loadingPosts = ref(false)
 const saving = ref(false)
@@ -23,13 +24,12 @@ const error = ref('')
 
 watch(() => props.open, async (v) => {
   if (!v) return
-  title.value = ''
+  mode.value = 'existing'
+  selectedIntroId.value = null
+  newTitle.value = ''
+  newContent.value = ''
   slug.value = ''
-  description.value = ''
-  cover.value = ''
-  introPostId.value = null
   error.value = ''
-  // 拉自己的文章作为介绍文候选
   loadingPosts.value = true
   try {
     if (user.value) {
@@ -47,8 +47,19 @@ watch(() => props.open, async (v) => {
   }
 })
 
-// 标题 → 自动 slug（仅英文/数字可转，中文留空手填）
-watch(title, (t) => {
+const selectedIntro = computed(() =>
+  myPosts.value.find(p => p.id === selectedIntroId.value) ?? null,
+)
+
+// 最终系列标题 = 选中文章的标题 或 新建介绍文的标题
+const finalTitle = computed(() =>
+  mode.value === 'existing'
+    ? (selectedIntro.value?.title ?? '')
+    : newTitle.value.trim(),
+)
+
+// 新建介绍文时，标题 → 自动 slug
+watch(newTitle, (t) => {
   if (slug.value) return
   slug.value = t
     .toLowerCase()
@@ -59,18 +70,44 @@ watch(title, (t) => {
 
 async function submit() {
   error.value = ''
-  if (!title.value.trim() || !slug.value.trim()) {
-    error.value = '标题和 slug 必填'
+  if (!finalTitle.value) {
+    error.value = '介绍文必填（选一篇或新建）'
     return
   }
+  if (!slug.value.trim()) {
+    error.value = 'slug 必填'
+    return
+  }
+
   saving.value = true
   try {
+    let introPostId: number
+
+    if (mode.value === 'existing') {
+      if (!selectedIntroId.value) {
+        error.value = '请选择介绍文'
+        saving.value = false
+        return
+      }
+      introPostId = selectedIntroId.value
+    } else {
+      // 新建介绍文：先 POST /api/posts，正文可空
+      const p = await api.post<Post>('/api/posts', {
+        title: newTitle.value.trim(),
+        content: newContent.value,
+        tag_ids: [],
+        featured: false,
+        series_id: null,
+        series_order: null,
+      })
+      introPostId = p.id
+    }
+
     const s = await api.post<Series>('/api/series', {
-      title: title.value.trim(),
       slug: slug.value.trim(),
-      description: description.value,
-      cover: cover.value || null,
-      intro_post_id: introPostId.value,
+      description: '',
+      cover: null,
+      intro_post_id: introPostId,
     })
     emit('created', s)
     emit('close')
@@ -95,42 +132,77 @@ async function submit() {
           <button class="text-faint hover:text-danger" @click="emit('close')">✕</button>
         </div>
 
-        <label class="block">
-          <span class="text-sm mb-1 block">标题</span>
-          <input v-model="title" class="w-full border border-border rounded px-3 py-2 bg-surface" placeholder="如：Nuxt 从零开始" />
-        </label>
+        <!-- 介绍文来源切换 -->
+        <div class="flex gap-2 text-sm">
+          <button
+            class="px-3 py-1 rounded border"
+            :class="mode === 'existing' ? 'border-primary text-primary' : 'border-border text-muted'"
+            @click="mode = 'existing'"
+          >选已有文章</button>
+          <button
+            class="px-3 py-1 rounded border"
+            :class="mode === 'new' ? 'border-primary text-primary' : 'border-border text-muted'"
+            @click="mode = 'new'"
+          >新建介绍文</button>
+        </div>
+
+        <!-- 选已有 -->
+        <template v-if="mode === 'existing'">
+          <label class="block">
+            <span class="text-sm mb-1 block">介绍文（必选，标题将作为系列标题）</span>
+            <select
+              v-model="selectedIntroId"
+              class="w-full border border-border rounded px-3 py-2 bg-surface text-sm"
+              :disabled="loadingPosts"
+            >
+              <option :value="null">{{ loadingPosts ? '加载中…' : '请选择…' }}</option>
+              <option v-for="p in myPosts" :key="p.id" :value="p.id">{{ p.title }}</option>
+            </select>
+          </label>
+          <p v-if="selectedIntro" class="text-sm text-faint">
+            系列标题：<span class="text-text font-medium">{{ selectedIntro.title }}</span>
+          </p>
+        </template>
+
+        <!-- 新建 -->
+        <template v-else>
+          <label class="block">
+            <span class="text-sm mb-1 block">介绍文标题（= 系列标题）</span>
+            <input
+              v-model="newTitle"
+              class="w-full border border-border rounded px-3 py-2 bg-surface"
+              placeholder="如：Nuxt 从零开始"
+            />
+          </label>
+          <label class="block">
+            <span class="text-sm mb-1 block">介绍文正文（可空）</span>
+            <textarea
+              v-model="newContent"
+              rows="6"
+              class="w-full border border-border rounded px-3 py-2 bg-surface font-mono text-sm"
+              placeholder="Markdown，可留空"
+            />
+          </label>
+        </template>
 
         <label class="block">
           <span class="text-sm mb-1 block">slug（URL 标识）</span>
-          <input v-model="slug" class="w-full border border-border rounded px-3 py-2 bg-surface font-mono text-sm" placeholder="nuxt-from-scratch" />
-        </label>
-
-        <label class="block">
-          <span class="text-sm mb-1 block">简介</span>
-          <textarea v-model="description" rows="2" class="w-full border border-border rounded px-3 py-2 bg-surface" placeholder="一句话说明这个系列" />
-        </label>
-
-        <label class="block">
-          <span class="text-sm mb-1 block">封面图 URL（可选）</span>
-          <input v-model="cover" class="w-full border border-border rounded px-3 py-2 bg-surface text-sm" placeholder="/static/xxx.png" />
-        </label>
-
-        <label class="block">
-          <span class="text-sm mb-1 block">介绍文（可选，从我的文章里选一篇）</span>
-          <select v-model="introPostId" class="w-full border border-border rounded px-3 py-2 bg-surface text-sm" :disabled="loadingPosts">
-            <option :value="null">{{ loadingPosts ? '加载中…' : '不设介绍文' }}</option>
-            <option v-for="p in myPosts" :key="p.id" :value="p.id">{{ p.title }}</option>
-          </select>
-          <span class="text-xs text-faint mt-1 block">
-            选中的文章会作为系列首页的"介绍"，它本身仍是一篇独立文章。
-          </span>
+          <input
+            v-model="slug"
+            class="w-full border border-border rounded px-3 py-2 bg-surface font-mono text-sm"
+            placeholder="nuxt-from-scratch"
+          />
         </label>
 
         <p v-if="error" class="text-sm text-danger">{{ error }}</p>
 
         <div class="flex justify-end gap-2 pt-2 border-t border-border">
           <button class="px-4 py-1.5 border border-border rounded" @click="emit('close')">取消</button>
-          <button class="px-4 py-1.5 bg-primary text-white rounded disabled:opacity-50" :disabled="saving" @click="submit">
+          <button
+            class="px-4 py-1.5 bg-primary text-white rounded disabled:opacity-50"
+            :disabled="saving"
+            @click="submit"
+          >
             {{ saving ? '创建中…' : '创建' }}
           </button>
         </div>
