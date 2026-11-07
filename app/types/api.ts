@@ -99,3 +99,17 @@ export interface ProfilePayload {
   email?: string
   password?: string
 }
+
+export interface SearchItem {
+  type: 'post' | 'series' | 'tag' | 'user'
+  id: number
+  title: string
+  subtitle: string
+  url: string
+  matched: string
+}
+
+export interface SearchOut {
+  items: SearchItem[]
+  post_filters: Record<string, string>
+}

@@ -125,6 +125,18 @@ class ProfileIn(BaseModel):
     email: Optional[str] = None
     password: Optional[str] = None   # 明文，假后端
 
+class SearchItem(BaseModel):
+    type: str          # "post" | "series" | "tag" | "user"
+    id: int
+    title: str         # 显示文本（文章标题/系列标题/标签名/用户名）
+    subtitle: str = "" # 次要信息（作者、篇数、slug）
+    url: str           # 点击跳转路径
+    matched: str = ""  # 命中的字段（title/content/name）
+
+class SearchOut(BaseModel):
+    items: list[SearchItem]
+    post_filters: dict  # 回车去 /posts 时带的 query
+
 # ---------- 内存存储 ----------
 now = lambda: datetime.now(timezone.utc).isoformat()
 
@@ -518,7 +530,8 @@ def list_posts(
     standalone: Optional[bool] = None,
     tag: Optional[str] = None,
     featured: Optional[bool] = None,
-    q: Optional[str] = None,          # ← 新增：搜索关键词
+    q: Optional[str] = None,
+    year: Optional[int] = None,
 ):
     items = sorted(posts.values(), key=lambda p: p["id"], reverse=True)
 
@@ -530,6 +543,10 @@ def list_posts(
                 if kw in p["title"].lower() or kw in p["content"].lower()
             ]
 
+    if year:
+        item = [p for p in items if p["created_at"][:4] == str(year)]
+    if user_id is not None:
+        items = [p for p in items if p["user_id"] == user_id]
     if standalone:
         items = [p for p in items if p.get("series_id") is None]
     if series_id is not None:
@@ -610,33 +627,6 @@ def delete_post(post_id: int, me: dict = Depends(get_me)):
     post_tags.pop(post_id, None)
     return None
 
-# @app.post("/api/posts/{post_id}/cover", response_model=Post)
-# async def upload_post_cover(post_id: int, file: UploadFile = File(...), me: dict = Depends(get_me)):
-#     p = posts.get(post_id)
-#     if not p:
-#         raise HTTPException(404, "文章不存在")
-#     if p["user_id"] != me["id"] and me["role"] != "admin":
-#         raise HTTPException(403, "无权修改")
-#     data = await file.read()
-#     p["cover"] = save_image(data, file.content_type, "posts", p.get("cover"))
-#     p["updated_at"] = now()
-#     return post_out(p)
-
-# @app.delete("/api/posts/{post_id}/cover", response_model=Post)
-# def delete_post_cover(post_id: int, me: dict = Depends(get_me)):
-#     p = posts.get(post_id)
-#     if not p:
-#         raise HTTPException(404, "文章不存在")
-#     if p["user_id"] != me["id"] and me["role"] != "admin":
-#         raise HTTPException(403, "无权修改")
-#     old = p.get("cover")
-#     if old and old.startswith("/static/posts/"):
-#         path = os.path.join(UPLOAD_ROOT, old.removeprefix("/static/"))
-#         if os.path.isfile(path):
-#             os.remove(path)
-#     p["cover"] = None
-#     return post_out(p)
-
 @app.post("/api/uploads/images", response_model=PostImageOut)
 async def upload_generic_image(file: UploadFile = File(...), me: dict = Depends(get_me)):
     data = await file.read()
@@ -682,21 +672,6 @@ async def upload_avatar(file: UploadFile = File(...), me: dict = Depends(get_me)
     me["avatar"] = save_image(data, file.content_type, "avatars", me.get("avatar"))
     return self_user(me)
 
-# @app.post("/api/series/{series_id}/cover", response_model=Series)
-# async def upload_series_cover(
-#     series_id: int,
-#     file: UploadFile = File(...),
-#     me: dict = Depends(get_me),
-# ):
-#     s = series.get(series_id)
-#     if not s:
-#         raise HTTPException(404, "系列不存在")
-#     if s["user_id"] != me["id"] and me["role"] != "admin":
-#         raise HTTPException(403, "无权修改")
-#     data = await file.read()
-#     s["cover"] = save_image(data, file.content_type, "series", s.get("cover"))
-#     return series_out(s)
-
 @app.post("/api/posts/{post_id}/images", response_model=PostImageOut)
 async def upload_post_image(
     post_id: int,
@@ -721,21 +696,6 @@ def delete_avatar(me: dict = Depends(get_me)):
             os.remove(p)
     me["avatar"] = None
     return self_user(me)
-
-# @app.delete("/api/series/{series_id}/cover", response_model=Series)
-# def delete_series_cover(series_id: int, me: dict = Depends(get_me)):
-#     s = series.get(series_id)
-#     if not s:
-#         raise HTTPException(404, "系列不存在")
-#     if s["user_id"] != me["id"] and me["role"] != "admin":
-#         raise HTTPException(403, "无权修改")
-#     old = s.get("cover")
-#     if old and old.startswith("/static/series/"):
-#         p = os.path.join(UPLOAD_ROOT, old.removeprefix("/static/"))
-#         if os.path.isfile(p):
-#             os.remove(p)
-#     s["cover"] = None
-#     return series_out(s)
 
 @app.post("/api/posts/{post_id}/cover", response_model=Post)
 async def upload_post_cover(
@@ -787,3 +747,78 @@ def update_me(body: ProfileIn, me: dict = Depends(get_me)):
             raise HTTPException(400, "密码至少 6 位")
         me["password"] = body.password
     return self_user(me)
+
+@app.get("/api/search", response_model=SearchOut)
+def search(
+    q: str = "",
+    type: Optional[str] = None,
+    limit: int = 8,
+):
+    kw = q.strip().lower()
+    items: list[SearchItem] = []
+
+    if not kw:
+        recent = sorted(posts.values(), key=lambda p: p["id"], reverse=True)[:5]
+        for p in recent:
+            items.append(SearchItem(
+                type="post", id=p["id"], title=p["title"],
+                subtitle=(users.get(p["user_id"]) or {}).get("username", ""),
+                url=f"/posts/{p['id']}", matched="recent",
+            ))
+        for t in list(tags.values())[:5]:
+            items.append(SearchItem(
+                type="tag", id=t["id"], title=t["name"],
+                subtitle=f"标签 · #{t['slug']}",
+                url=f"/posts?tag={t['slug']}", matched="popular",
+            ))
+        return SearchOut(items=items, post_filters={})
+
+    for p in posts.values():
+        if kw in p["title"].lower() or kw in p["content"].lower():
+            author = users.get(p["user_id"]) or {}
+            items.append(SearchItem(
+                type="post", id=p["id"], title=p["title"],
+                subtitle=f"作者 {author.get('username','')}",
+                url=f"/posts/{p['id']}",
+                matched="title" if kw in p["title"].lower() else "content",
+            ))
+
+    for s in series.values():
+        intro = posts.get(s.get("intro_post_id")) if s.get("intro_post_id") else None
+        s_title = intro["title"] if intro else ""
+        if kw in s_title.lower() or kw in s.get("description", "").lower():
+            items.append(SearchItem(
+                type="series", id=s["id"], title=s_title,
+                subtitle=f"系列 · {sum(1 for p in posts.values() if p.get('series_id')==s['id'])} 篇",
+                url=f"/series/{s['slug']}",
+                matched="series",
+            ))
+
+    for t in tags.values():
+        if kw in t["name"].lower() or kw in t["slug"].lower():
+            items.append(SearchItem(
+                type="tag", id=t["id"], title=t["name"],
+                subtitle=f"标签 · #{t['slug']}",
+                url=f"/posts?tag={t['slug']}",
+                matched="tag",
+            ))
+
+    for u in users.values():
+        if kw in u["username"].lower():
+            items.append(SearchItem(
+                type="user", id=u["id"], title=u["username"],
+                subtitle="用户",
+                url=f"/user/{u['id']}",
+                matched="user",
+            ))
+
+    if type:
+        items = [i for i in items if i.type == type]   # ← 属性访问
+
+    order = {"post": 0, "series": 1, "tag": 2, "user": 3}
+    items.sort(key=lambda i: (order[i.type], len(i.title)))   # ← 属性访问
+
+    return SearchOut(
+        items=items[:limit],
+        post_filters={"q": q},
+    )
