@@ -117,3 +117,29 @@ export interface SearchOut {
   items: SearchItem[]
   post_filters: Record<string, string>
 }
+
+export interface FriendLink {
+  id: number
+  name: string
+  url: string
+  description: string
+  avatar?: string | null
+  theme_color: string
+  skin: 'minimal' | 'neon' | 'tilt'
+  tags: string[]
+  order: number
+  visible: boolean
+  created_at: string
+}
+
+export interface FriendLinkIn {
+  name: string
+  url: string
+  description?: string
+  avatar?: string | null
+  theme_color?: string
+  skin?: 'minimal' | 'neon' | 'tilt'
+  tags?: string[]
+  order?: number
+  visible?: boolean
+}

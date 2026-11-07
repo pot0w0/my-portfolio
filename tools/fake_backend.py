@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from PIL import Image
 import io
+import re
 
 # ---------- 数据模型 ----------
 class User(BaseModel):
@@ -142,6 +143,30 @@ class TagIn(BaseModel):
     name: str
     slug: str
 
+class FriendLink(BaseModel):
+    id: int
+    name: str
+    url: str
+    description: str = ""
+    avatar: Optional[str] = None
+    theme_color: str = "#3b82f6"      # #rrggbb
+    skin: str = "minimal"             # minimal | neon | tilt
+    tags: list[str] = []
+    order: int = 0
+    visible: bool = True
+    created_at: str
+
+class FriendLinkIn(BaseModel):
+    name: str
+    url: str
+    description: str = ""
+    avatar: Optional[str] = None
+    theme_color: str = "#3b82f6"
+    skin: str = "minimal"
+    tags: list[str] = []
+    order: int = 0
+    visible: bool = True
+
 # ---------- 内存存储 ----------
 now = lambda: datetime.now(timezone.utc).isoformat()
 
@@ -154,7 +179,9 @@ tags: dict[int, dict] = {}
 post_tags: dict[int, set[int]] = {}
 posts: dict[int, dict]
 series: dict[int, dict] = {}
+friends: dict[int, dict] = {}
 
+_next_fid = 1
 _next_uid = 1
 _next_pid = 1
 _next_cid = 1
@@ -169,6 +196,8 @@ UPLOAD_ROOT = "uploads"
 MAX_DIMENSION = 2048                  # 最长边超过则等比缩小
 OUTPUT_FORMAT = "WEBP"                # 统一输出 WebP（GIF 除外）
 OUTPUT_EXT = ".webp"
+ALLOWED_SKINS = {"minimal", "neon", "tilt"}
+HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 PIL_FORMAT_MAP = {
     "image/png": "PNG",
@@ -365,6 +394,26 @@ def save_image(data: bytes, content_type: str, subdir: str, old_url: str | None)
 
     return f"/static/{subdir}/{name}"
 
+def make_friend(d: dict) -> dict:
+    global _next_fid
+    f = {
+        "id": _next_fid, "name": d["name"], "url": d["url"],
+        "description": d.get("description", ""),
+        "avatar": d.get("avatar"),
+        "theme_color": d.get("theme_color", "#3b82f6"),
+        "skin": d.get("skin", "minimal"),
+        "tags": d.get("tags", []),
+        "order": d.get("order", 0),
+        "visible": d.get("visible", True),
+        "created_at": now(),
+    }
+    friends[f["id"]] = f
+    _next_fid += 1
+    return f
+
+def friend_out(f: dict) -> FriendLink:
+    return FriendLink(**f)
+
 # ---------- 种子数据 ----------
 alice = make_user("alice", "alice123", "alice@example.com", role="admin")
 bob = make_user("bob", "bob123")
@@ -395,6 +444,22 @@ p3 = make_post(bob["id"], "Bob 的文章",
 
 make_comment(p1["id"], bob["id"], "写得不错！")
 make_comment(p1["id"], alice["id"], "谢谢～")
+
+make_friend({
+    "name": "Nuxt", "url": "https://nuxt.com", "description": "The Intuitive Vue Framework",
+    "avatar": "https://nuxt.com/icon.png", "theme_color": "#00dc82", "skin": "neon",
+    "tags": ["Vue", "框架"], "order": 1,
+})
+make_friend({
+    "name": "Vue", "url": "https://vuejs.org", "description": "The Progressive JavaScript Framework",
+    "avatar": "https://vuejs.org/logo.svg", "theme_color": "#42b883", "skin": "minimal",
+    "tags": ["前端"], "order": 2,
+})
+make_friend({
+    "name": "Tailwind", "url": "https://tailwindcss.com", "description": "Rapidly build modern websites",
+    "theme_color": "#38bdf8", "skin": "tilt",
+    "tags": ["CSS"], "order": 3,
+})
 
 # ---------- 鉴权依赖 ----------
 def get_me(authorization: Optional[str] = Header(None)) -> dict:
@@ -888,3 +953,44 @@ def create_tag(body: TagIn, me: dict = Depends(get_me)):
         raise HTTPException(409, "标签已存在")
     t = make_tag(body.name.strip(), body.slug.strip())
     return Tag(**t)
+
+@app.get("/api/friends", response_model=list[FriendLink])
+def list_friends():
+    items = [f for f in friends.values() if f["visible"]]
+    items.sort(key=lambda f: (f["order"], f["id"]))
+    return [friend_out(f) for f in items]
+
+def _validate_friend(body: FriendLinkIn):
+    if not body.name.strip() or not body.url.strip():
+        raise HTTPException(400, "名称和链接必填")
+    if not HEX_RE.match(body.theme_color):
+        raise HTTPException(400, "theme_color 必须是 #rrggbb")
+    if body.skin not in ALLOWED_SKINS:
+        raise HTTPException(400, f"skin 必须是 {ALLOWED_SKINS}")
+
+@app.post("/api/friends", response_model=FriendLink, status_code=201)
+def create_friend(body: FriendLinkIn, me: dict = Depends(get_me)):
+    if me["role"] != "admin":
+        raise HTTPException(403, "需要管理员")
+    _validate_friend(body)
+    f = make_friend(body.model_dump())
+    return friend_out(f)
+
+@app.put("/api/friends/{fid}", response_model=FriendLink)
+def update_friend(fid: int, body: FriendLinkIn, me: dict = Depends(get_me)):
+    if me["role"] != "admin":
+        raise HTTPException(403, "需要管理员")
+    if fid not in friends:
+        raise HTTPException(404, "友链不存在")
+    _validate_friend(body)
+    friends[fid].update(body.model_dump())
+    return friend_out(friends[fid])
+
+@app.delete("/api/friends/{fid}", status_code=204)
+def delete_friend(fid: int, me: dict = Depends(get_me)):
+    if me["role"] != "admin":
+        raise HTTPException(403, "需要管理员")
+    if fid not in friends:
+        raise HTTPException(404, "友链不存在")
+    del friends[fid]
+    return None

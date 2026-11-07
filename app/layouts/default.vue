@@ -54,7 +54,7 @@ onBeforeUnmount(() => {
             @click="showSearch = true"
             aria-label="搜索"
           >
-            <span>🔍</span>
+            <span>Q</span>
             <span class="hidden md:inline">搜索</span>
             <kbd class="hidden md:inline text-xs border border-border rounded px-1">⌘K</kbd>
           </button>
@@ -62,6 +62,7 @@ onBeforeUnmount(() => {
           <nav class="flex items-center gap-3 md:gap-4 text-sm">
             <NuxtLink to="/" class="hover:text-primary">首页</NuxtLink>
             <NuxtLink to="/posts" class="hover:text-primary">博客</NuxtLink>
+            <NuxtLink to="/friends" class="hover:text-primary">友链</NuxtLink>
             <ClientOnly>
               <template v-if="isLoggedIn">
                 <NuxtLink to="/user" class="hover:text-primary">我的</NuxtLink>
