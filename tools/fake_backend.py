@@ -52,6 +52,7 @@ class Series(BaseModel):
     author: Optional[UserPublic] = None
     post_count: int = 0
     created_at: str
+    updated_at: str
 
 class SeriesIn(BaseModel):
     slug: str
@@ -220,11 +221,15 @@ def make_series(user_id: int, slug: str,
         "id": _next_sid, "slug": slug,
         "description": description,
         "user_id": user_id, "intro_post_id": intro_post_id,
-        "created_at": now(),
+        "created_at": now(), "update_at": now()
     }
     series[s["id"]] = s
     _next_sid += 1
     return s
+
+def touch_series(series_id: int | None):
+    if series_id and series_id in series:
+        series[series_id]["updated_at"] = now()
 
 def series_out(s: dict) -> Series:
     author = users.get(s["user_id"])
@@ -239,6 +244,8 @@ def series_out(s: dict) -> Series:
         user_id=s["user_id"], intro_post_id=s.get("intro_post_id"),
         author=public_user(author) if author else None,
         post_count=count, created_at=s["created_at"],
+        # created_at=s["created_at"],
+        updated_at=s.get("updated_at", s["created_at"]),
     )
 
 def make_post(user_id: int, title: str, content: str,
@@ -451,8 +458,35 @@ def list_tags():
 
 # ===== 系列 =====
 @app.get("/api/series", response_model=list[Series])
-def list_series():
-    items = sorted(series.values(), key=lambda s: s["id"], reverse=True)
+def list_series(
+    q: Optional[str] = None,
+    sort: str = "updated_at",   # updated_at | created_at | title
+    order: str = "desc",
+):
+    items = list(series.values())
+
+    # 搜索：用介绍文的 title + content 匹配
+    if q:
+        kw = q.strip().lower()
+        if kw:
+            def matches(s):
+                intro = posts.get(s.get("intro_post_id")) if s.get("intro_post_id") else None
+                if not intro:
+                    return False
+                return kw in intro["title"].lower() or kw in intro["content"].lower()
+            items = [s for s in items if matches(s)]
+
+    reverse = order == "desc"
+    if sort == "title":
+        def title_of(s):
+            intro = posts.get(s.get("intro_post_id")) if s.get("intro_post_id") else None
+            return (intro["title"] if intro else "").lower()
+        items.sort(key=title_of, reverse=reverse)
+    elif sort == "created_at":
+        items.sort(key=lambda s: s["created_at"], reverse=reverse)
+    else:  # updated_at
+        items.sort(key=lambda s: s.get("updated_at", s["created_at"]), reverse=reverse)
+
     return [series_out(s) for s in items]
 
 @app.get("/api/series/{slug}")
@@ -536,26 +570,24 @@ def list_posts(
     featured: Optional[bool] = None,
     q: Optional[str] = None,
     year: Optional[int] = None,
+    sort: str = "created_at",
+    order: str = "desc",
 ):
-    items = sorted(posts.values(), key=lambda p: p["id"], reverse=True)
+    items = list(posts.values())
 
+    # ---- 筛选（原有，不动） ----
     if q:
         kw = q.strip().lower()
         if kw:
-            items = [
-                p for p in items
-                if kw in p["title"].lower() or kw in p["content"].lower()
-            ]
-
+            items = [p for p in items if kw in p["title"].lower() or kw in p["content"].lower()]
     if year:
-        item = [p for p in items if p["created_at"][:4] == str(year)]
+        items = [p for p in items if p["created_at"][:4] == str(year)]
     if user_id is not None:
         items = [p for p in items if p["user_id"] == user_id]
     if standalone:
         items = [p for p in items if p.get("series_id") is None]
     if series_id is not None:
         items = [p for p in items if p.get("series_id") == series_id]
-        items.sort(key=lambda p: p.get("series_order") or 0)
     if tag:
         t = next((t for t in tags.values() if t["slug"] == tag), None)
         if not t:
@@ -563,6 +595,16 @@ def list_posts(
         items = [p for p in items if t["id"] in post_tags.get(p["id"], set())]
     if featured is not None:
         items = [p for p in items if bool(p.get("featured")) == featured]
+
+    # ---- 排序（新增） ----
+    reverse = order == "desc"
+    if sort == "title":
+        # 首字母/拼音近似：直接按字符串，中文排后面
+        items.sort(key=lambda p: p["title"].lower(), reverse=reverse)
+    elif sort == "series_order":
+        items.sort(key=lambda p: (p.get("series_id") or 0, p.get("series_order") or 0), reverse=reverse)
+    else:  # created_at
+        items.sort(key=lambda p: p["created_at"], reverse=reverse)
 
     total = len(items)
     start = (page - 1) * limit
@@ -588,6 +630,7 @@ def create_post(body: PostIn, me: dict = Depends(get_me)):
                   tag_ids=body.tag_ids, featured=body.featured,
                   series_id=body.series_id, series_order=body.series_order,
                   cover=body.cover)
+    touch_series(body.series_id)
     return post_out(p)
 
 def ensure_can_modify(p: dict, me: dict):
@@ -610,9 +653,14 @@ def update_post(post_id: int, body: PostIn, me: dict = Depends(get_me)):
     p["series_id"] = body.series_id
     p["series_order"] = body.series_order
     p["updated_at"] = now()
+    old_series_id = p.get("series_id")
+    p["series_id"] = body.series_id
     if body.cover is not None:
         p["cover"] = body.cover
     post_tags[p["id"]] = set(body.tag_ids)
+
+    touch_series(old_series_id)
+    touch_series(body_series_id)
     return post_out(p)
 
 @app.delete("/api/posts/{post_id}", status_code=204)
@@ -621,6 +669,7 @@ def delete_post(post_id: int, me: dict = Depends(get_me)):
     if not p:
         raise HTTPException(404, "文章不存在")
     ensure_can_modify(p, me)
+    sid = p.get("series_id")
 
     # 检查是否被系列引用为介绍文
     used_by = next((s for s in series.values() if s.get("intro_post_id") == post_id), None)
@@ -628,6 +677,7 @@ def delete_post(post_id: int, me: dict = Depends(get_me)):
         raise HTTPException(409, f"该文章是系列《{used_by['slug']}》的介绍文，请先更换介绍文再删除")
 
     del posts[post_id]
+    touch_series(sid)
     post_tags.pop(post_id, None)
     return None
 
@@ -789,10 +839,11 @@ def search(
 
     for s in series.values():
         intro = posts.get(s.get("intro_post_id")) if s.get("intro_post_id") else None
-        s_title = intro["title"] if intro else ""
-        if kw in s_title.lower() or kw in s.get("description", "").lower():
+        if not intro:
+            continue
+        if kw in intro["title"].lower() or kw in intro["content"].lower() or kw in s.get("description", "").lower():
             items.append(SearchItem(
-                type="series", id=s["id"], title=s_title,
+                type="series", id=s["id"], title=intro["title"],
                 subtitle=f"系列 · {sum(1 for p in posts.values() if p.get('series_id')==s['id'])} 篇",
                 url=f"/series/{s['slug']}",
                 matched="series",

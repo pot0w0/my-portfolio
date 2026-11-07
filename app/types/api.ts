@@ -24,6 +24,7 @@ export interface Series {
   author?: User
   post_count?: number
   created_at?: string
+  updated_at?: string
 }
 
 export interface SeriesDetail {
@@ -92,6 +93,9 @@ export interface PostListQuery {
   series_id?: number
   standalone?: boolean
   q?: string
+  year?: number
+  sort?: string
+  order?: string
 }
 
 export interface ProfilePayload {
