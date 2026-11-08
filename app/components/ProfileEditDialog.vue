@@ -7,26 +7,25 @@ const emit = defineEmits<{
   (e: 'updated', user: User): void
 }>()
 
-const { user, updateProfile, uploadAvatar, removeAvatar } = useAuth()
+const { user, updateProfile, setAvatar } = useAuth()
+const { uploadImage } = useUpload()
 const mediaUrl = useMediaUrl()
 
-// 表单字段
 const username = ref('')
 const email = ref('')
 const password = ref('')
 const confirmPassword = ref('')
 
-// 头像
 const fileInput = ref<HTMLInputElement | null>(null)
-const avatarPreview = ref<string | null>(null)
-const avatarFile = ref<File | null>(null)
-const avatarBusy = ref(false)
-const avatarRemove = ref(false)   // 标记"移除头像"
+const avatarPreview = ref<string | null>(null)   // 本地文件预览（blob:）
+const avatarFile = ref<File | null>(null)        // 选了新文件
+const avatarUrl = ref<string | null>(null)       // 从池中选的 URL
+const avatarRemove = ref(false)                  // 标记移除
+const showAvatarPicker = ref(false)
 
 const saving = ref(false)
 const error = ref('')
 
-// 打开时初始化
 watch(() => props.open, (v) => {
   if (!v) return
   username.value = user.value?.username ?? ''
@@ -34,6 +33,7 @@ watch(() => props.open, (v) => {
   password.value = ''
   confirmPassword.value = ''
   avatarFile.value = null
+  avatarUrl.value = null
   avatarRemove.value = false
   if (avatarPreview.value) URL.revokeObjectURL(avatarPreview.value)
   avatarPreview.value = null
@@ -50,17 +50,30 @@ function onAvatarPick(e: Event) {
   }
   if (f.size > 2 * 1024 * 1024) { error.value = '头像不能超过 2MB'; return }
   avatarFile.value = f
+  avatarUrl.value = null
   avatarRemove.value = false
   if (avatarPreview.value) URL.revokeObjectURL(avatarPreview.value)
   avatarPreview.value = URL.createObjectURL(f)
+  if (fileInput.value) fileInput.value.value = ''
+}
+
+function onAvatarPicked(url: string) {
+  avatarUrl.value = url
+  avatarFile.value = null
+  avatarRemove.value = false
+  if (avatarPreview.value) URL.revokeObjectURL(avatarPreview.value)
+  avatarPreview.value = null
 }
 
 function clearAvatar() {
   avatarFile.value = null
+  avatarUrl.value = null
   if (avatarPreview.value) URL.revokeObjectURL(avatarPreview.value)
   avatarPreview.value = null
   avatarRemove.value = true
 }
+
+function undoRemoveAvatar() { avatarRemove.value = false }
 
 onBeforeUnmount(() => { if (avatarPreview.value) URL.revokeObjectURL(avatarPreview.value) })
 
@@ -74,18 +87,23 @@ async function submit() {
 
   saving.value = true
   try {
-    // 1. 更新基本信息（用户名/邮箱/密码）
+    // 1) 更新基本信息
     const payload: any = { username: username.value.trim() }
     payload.email = email.value.trim() || null
     if (password.value) payload.password = password.value
     let updated = await updateProfile(payload)
 
-    // 2. 头像：有文件就传，标记移除就删
+    // 2) 头像：三种情况
     if (avatarFile.value) {
-      avatarBusy.value = true
-      updated = await uploadAvatar(avatarFile.value)
+      // 新上传的文件：先传图拿 URL，再绑定
+      const url = await uploadImage(avatarFile.value)
+      updated = await setAvatar(url)
+    } else if (avatarUrl.value) {
+      // 从池中选：直接绑定
+      updated = await setAvatar(avatarUrl.value)
     } else if (avatarRemove.value && user.value?.avatar) {
-      updated = await removeAvatar()
+      // 移除
+      updated = await setAvatar(null)
     }
 
     emit('updated', updated)
@@ -94,7 +112,6 @@ async function submit() {
     error.value = e?.message ?? '保存失败'
   } finally {
     saving.value = false
-    avatarBusy.value = false
   }
 }
 </script>
@@ -113,31 +130,42 @@ async function submit() {
         </div>
 
         <!-- 头像 -->
-        <div class="flex items-center gap-4">
+        <div class="flex items-center gap-4 flex-wrap">
           <div class="w-16 h-16 rounded-full overflow-hidden border border-border bg-surface-2 shrink-0">
             <img
-              v-if="avatarPreview || (user?.avatar && !avatarRemove)"
-              :src="avatarPreview || mediaUrl(user?.avatar)"
+              v-if="avatarPreview || (avatarUrl && !avatarRemove) || (user?.avatar && !avatarRemove && !avatarFile && !avatarUrl)"
+              :src="avatarPreview || (avatarUrl ? mediaUrl(avatarUrl) : mediaUrl(user?.avatar))"
               class="w-full h-full object-cover"
               alt=""
             />
-            <div v-else class="w-full h-full flex items-center justify-center text-faint text-xs">
-              无
-            </div>
+            <div v-else class="w-full h-full flex items-center justify-center text-faint text-xs">无</div>
           </div>
           <div class="flex flex-col gap-1.5">
             <input ref="fileInput" type="file" accept="image/*" class="hidden" @change="onAvatarPick" />
-            <button type="button" class="px-3 py-1 border border-border rounded text-sm hover:bg-surface-2" @click="pickAvatar">
-              更换头像
-            </button>
+            <div class="flex gap-1.5 flex-wrap">
+              <button
+                type="button"
+                class="px-3 py-1 border border-border rounded text-sm hover:bg-surface-2"
+                @click="pickAvatar"
+              >上传新图</button>
+              <button
+                type="button"
+                class="px-3 py-1 border border-border rounded text-sm hover:bg-surface-2"
+                @click="showAvatarPicker = true"
+              >从图片池选</button>
+            </div>
             <button
-              v-if="avatarPreview || (user?.avatar && !avatarRemove)"
+              v-if="avatarPreview || avatarUrl || (user?.avatar && !avatarRemove)"
               type="button"
               class="px-3 py-1 border border-danger text-danger rounded text-sm"
               @click="clearAvatar"
-            >
-              移除头像
-            </button>
+            >移除头像</button>
+            <button
+              v-else-if="avatarRemove && user?.avatar"
+              type="button"
+              class="px-3 py-1 border border-border rounded text-sm"
+              @click="undoRemoveAvatar"
+            >取消移除</button>
           </div>
         </div>
 
@@ -174,11 +202,17 @@ async function submit() {
             class="px-4 py-1.5 bg-primary text-white rounded disabled:opacity-50"
             :disabled="saving"
             @click="submit"
-          >
-            {{ saving ? '保存中…' : '保存' }}
-          </button>
+          >{{ saving ? '保存中…' : '保存' }}</button>
         </div>
       </div>
+
     </div>
   </Teleport>
+  <!-- 图片池选择 -->
+  <ImagePickerDialog
+    :open="showAvatarPicker"
+    title="选择头像"
+    @close="showAvatarPicker = false"
+    @picked="onAvatarPicked"
+  />
 </template>

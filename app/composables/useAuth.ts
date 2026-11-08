@@ -62,16 +62,8 @@ export function useAuth() {
     if (token.value) await fetchMe()
   }
 
-  async function uploadAvatar(file: File) {
-    const form = new FormData()
-    form.append('file', file)
-    const res = await api.post<User>('/api/user/me/avatar', form)
-    user.value = res
-    return res
-  }
-
-  async function removeAvatar() {
-    const res = await api.del<User>('/api/user/me/avatar')
+  async function setAvatar(url: string | null) {
+    const res = await api.put<User>('/api/user/me', { avatar: url })
     user.value = res
     return res
   }
@@ -85,7 +77,7 @@ export function useAuth() {
   return {
     token, user, isLoggedIn, isAdmin,
     login, register, fetchMe, logout, init,
-    setAuth, clearAuth, uploadAvatar, removeAvatar,
+    setAuth, clearAuth, setAvatar,
     updateProfile, 
   }
 }

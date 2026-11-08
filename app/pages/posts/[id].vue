@@ -13,6 +13,16 @@ const errorMsg = ref('')
 const editing = ref(false)
 const actionError = ref('')
 
+const adjacent = ref<{ prev: Post | null; next: Post | null; series: any | null } | null>(null)
+
+async function fetchAdjacent() {
+  try {
+    adjacent.value = await useApi().get(`/api/posts/${route.params.id}/adjacent`, undefined, { silent: true })
+  } catch { adjacent.value = null }
+}
+
+
+onMounted(() => { fetchPost(); fetchAdjacent() })
 const isAuthor = computed(
   () => !!user.value && !!post.value && user.value.id === post.value.user_id,
 )
@@ -144,6 +154,36 @@ async function onDelete() {
         <MDC :value="post.content" />
       </article>
 
+      <!-- 系列上下文 + 上一篇/下一篇 -->
+      <section v-if="adjacent?.series" class="space-y-3">
+        <div class="text-sm text-faint text-center">
+          系列
+          <NuxtLink :to="`/series/${adjacent.series.slug}`" class="text-primary hover:underline">
+            《{{ adjacent.series.title }}》
+          </NuxtLink>
+          第 {{ adjacent.series.index }} / {{ adjacent.series.total }} 篇
+        </div>
+        <div class="flex justify-between gap-3">
+          <NuxtLink
+            v-if="adjacent.prev"
+            :to="`/posts/${adjacent.prev.id}`"
+            class="flex-1 p-3 rounded border border-border bg-surface hover:bg-surface-2 transition text-sm"
+          >
+            <span class="text-faint text-xs">← 上一篇</span>
+            <p class="truncate">{{ adjacent.prev.title }}</p>
+          </NuxtLink>
+          <div v-else class="flex-1" />
+          <NuxtLink
+            v-if="adjacent.next"
+            :to="`/posts/${adjacent.next.id}`"
+            class="flex-1 p-3 rounded border border-border bg-surface hover:bg-surface-2 transition text-sm text-right"
+          >
+            <span class="text-faint text-xs">下一篇 →</span>
+            <p class="truncate">{{ adjacent.next.title }}</p>
+          </NuxtLink>
+          <div v-else class="flex-1" />
+        </div>
+      </section>
       <CommentSection :post="post" />
     </template>
   </div>

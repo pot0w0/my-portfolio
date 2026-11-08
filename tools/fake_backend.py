@@ -1,25 +1,26 @@
 """
-极简假后端：FastAPI + 内存存储（无分类，系列 + 标签 + 评论 + 头像）
+极简假后端：FastAPI + 内存存储（系列 + 标签 + 评论 + 图片池 + 友链 + 搜索）
 运行：
-    pip install fastapi uvicorn python-multipart
+    pip install fastapi uvicorn python-multipart pillow
     uvicorn fake_backend:app --reload --port 3000
 """
 from __future__ import annotations
 
+import io
 import os
+import re
 import secrets
+import threading
+import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import FastAPI, Depends, HTTPException, Header, Query, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel
 from PIL import Image
-import io
-import re
+from pydantic import BaseModel
 
 # ---------- 数据模型 ----------
 class User(BaseModel):
@@ -41,6 +42,7 @@ class Tag(BaseModel):
     id: int
     name: str
     slug: str
+    post_count: int = 0
 
 class Series(BaseModel):
     id: int
@@ -58,7 +60,7 @@ class Series(BaseModel):
 class SeriesIn(BaseModel):
     slug: str
     description: str = ""
-    intro_post_id: Optional[int] = None   # 建系列时必填（代码里校验），改系列时可选
+    intro_post_id: Optional[int] = None
 
 class PostImage(BaseModel):
     id: int
@@ -77,8 +79,8 @@ class Post(BaseModel):
     author: Optional[UserPublic] = None
     created_at: str
     updated_at: str
-    cover: Optional[str] = None          # 封面图 URL
-    images: list[PostImage] = []         # 正文图
+    cover: Optional[str] = None
+    images: list[PostImage] = []
 
 class PostIn(BaseModel):
     title: str
@@ -125,23 +127,27 @@ class PostImageOut(BaseModel):
 class ProfileIn(BaseModel):
     username: Optional[str] = None
     email: Optional[str] = None
-    password: Optional[str] = None   # 明文，假后端
+    password: Optional[str] = None
+    avatar: Optional[str] = None   # 新增：绑定/解绑头像（null 解绑）
 
 class SearchItem(BaseModel):
-    type: str          # "post" | "series" | "tag" | "user"
+    type: str
     id: int
-    title: str         # 显示文本（文章标题/系列标题/标签名/用户名）
-    subtitle: str = "" # 次要信息（作者、篇数、slug）
-    url: str           # 点击跳转路径
-    matched: str = ""  # 命中的字段（title/content/name）
+    title: str
+    subtitle: str = ""
+    url: str
+    matched: str = ""
 
 class SearchOut(BaseModel):
     items: list[SearchItem]
-    post_filters: dict  # 回车去 /posts 时带的 query
+    post_filters: dict
 
 class TagIn(BaseModel):
     name: str
     slug: str
+
+class TagUpdateIn(BaseModel):
+    name: str
 
 class FriendLink(BaseModel):
     id: int
@@ -149,8 +155,8 @@ class FriendLink(BaseModel):
     url: str
     description: str = ""
     avatar: Optional[str] = None
-    theme_color: str = "#3b82f6"      # #rrggbb
-    skin: str = "minimal"             # minimal | neon | tilt
+    theme_color: str = "#3b82f6"
+    skin: str = "minimal"
     tags: list[str] = []
     order: int = 0
     visible: bool = True
@@ -167,6 +173,17 @@ class FriendLinkIn(BaseModel):
     order: int = 0
     visible: bool = True
 
+class AdjacentOut(BaseModel):
+    prev: Optional[Post] = None
+    next: Optional[Post] = None
+    series: Optional[dict] = None
+
+class PoolImage(BaseModel):
+    url: str
+    filename: str
+    size: int
+    mtime: float
+
 # ---------- 内存存储 ----------
 now = lambda: datetime.now(timezone.utc).isoformat()
 
@@ -177,7 +194,6 @@ tokens: dict[str, int] = {}
 comments: dict[int, dict] = {}
 tags: dict[int, dict] = {}
 post_tags: dict[int, set[int]] = {}
-posts: dict[int, dict]
 series: dict[int, dict] = {}
 friends: dict[int, dict] = {}
 
@@ -188,13 +204,14 @@ _next_cid = 1
 _next_tag = 1
 _next_sid = 1
 
-UPLOAD_DIR = "uploads/avatars"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+UPLOAD_ROOT = "uploads"
+POOL_DIR = os.path.join(UPLOAD_ROOT, "pool")
+os.makedirs(POOL_DIR, exist_ok=True)
+
 ALLOWED = {"image/png", "image/jpeg", "image/webp", "image/gif"}
 MAX_BYTES = 2 * 1024 * 1024
-UPLOAD_ROOT = "uploads"
-MAX_DIMENSION = 2048                  # 最长边超过则等比缩小
-OUTPUT_FORMAT = "WEBP"                # 统一输出 WebP（GIF 除外）
+MAX_DIMENSION = 2048
+OUTPUT_FORMAT = "WEBP"
 OUTPUT_EXT = ".webp"
 ALLOWED_SKINS = {"minimal", "neon", "tilt"}
 HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
@@ -235,6 +252,13 @@ def self_user(u: dict) -> User:
         email=u.get("email"), avatar=u.get("avatar"), created_at=u["created_at"],
     )
 
+def tag_post_count(tag_id: int) -> int:
+    return sum(1 for tids in post_tags.values() if tag_id in tids)
+
+def tag_out(t: dict) -> Tag:
+    return Tag(id=t["id"], name=t["name"], slug=t["slug"],
+               post_count=tag_post_count(t["id"]))
+
 def make_tag(name: str, slug: str) -> dict:
     global _next_tag
     t = {"id": _next_tag, "name": name, "slug": slug}
@@ -242,15 +266,14 @@ def make_tag(name: str, slug: str) -> dict:
     _next_tag += 1
     return t
 
-def make_series(user_id: int, slug: str,
-                description: str = "", cover: str | None = None,
+def make_series(user_id: int, slug: str, description: str = "",
                 intro_post_id: int | None = None) -> dict:
     global _next_sid
+    ts = now()
     s = {
-        "id": _next_sid, "slug": slug,
-        "description": description,
+        "id": _next_sid, "slug": slug, "description": description,
         "user_id": user_id, "intro_post_id": intro_post_id,
-        "created_at": now(), "update_at": now()
+        "created_at": ts, "updated_at": ts,
     }
     series[s["id"]] = s
     _next_sid += 1
@@ -268,12 +291,10 @@ def series_out(s: dict) -> Series:
     cover = intro.get("cover") if intro else None
     return Series(
         id=s["id"], title=title, slug=s["slug"],
-        description=s.get("description", ""),
-        cover=cover,
+        description=s.get("description", ""), cover=cover,
         user_id=s["user_id"], intro_post_id=s.get("intro_post_id"),
         author=public_user(author) if author else None,
         post_count=count, created_at=s["created_at"],
-        # created_at=s["created_at"],
         updated_at=s.get("updated_at", s["created_at"]),
     )
 
@@ -289,8 +310,7 @@ def make_post(user_id: int, title: str, content: str,
         "id": _next_pid, "title": title, "content": content,
         "user_id": user_id,
         "series_id": series_id, "series_order": series_order,
-        "featured": featured,
-        "cover": cover,
+        "featured": featured, "cover": cover,
         "created_at": ts, "updated_at": ts,
     }
     posts[p["id"]] = p
@@ -307,9 +327,8 @@ def post_out(p: dict) -> Post:
         id=p["id"], title=p["title"], content=p["content"], user_id=p["user_id"],
         series_id=p.get("series_id"), series_order=p.get("series_order"),
         series=series_out(s) if s else None,
-        tags=[Tag(**tags[t]) for t in tids if t in tags],
-        featured=bool(p.get("featured")),
-        cover=p.get("cover"),
+        tags=[tag_out(tags[t]) for t in tids if t in tags],
+        featured=bool(p.get("featured")), cover=p.get("cover"),
         author=public_user(author) if author else None,
         created_at=p["created_at"], updated_at=p["updated_at"],
     )
@@ -332,8 +351,9 @@ def comment_out(c: dict) -> Comment:
         author=public_user(author) if author else None,
     )
 
-
-def save_image(data: bytes, content_type: str, subdir: str, old_url: str | None) -> str:
+# ---------- 图片 ----------
+def save_image(data: bytes, content_type: str) -> str:
+    """只存池，不删旧（清理交给定时任务）"""
     if content_type not in ALLOWED:
         raise HTTPException(400, "仅支持 png/jpeg/webp/gif")
     if not data:
@@ -342,7 +362,6 @@ def save_image(data: bytes, content_type: str, subdir: str, old_url: str | None)
         raise HTTPException(400, "文件超过 2MB")
 
     expected = PIL_FORMAT_MAP[content_type]
-
     try:
         probe = Image.open(io.BytesIO(data))
         probe.verify()
@@ -380,20 +399,69 @@ def save_image(data: bytes, content_type: str, subdir: str, old_url: str | None)
         out_bytes = buf.getvalue()
         ext = OUTPUT_EXT
 
-    subdir_path = os.path.join(UPLOAD_ROOT, subdir)
-    os.makedirs(subdir_path, exist_ok=True)
     name = f"{uuid.uuid4().hex}{ext}"
-    path = os.path.join(subdir_path, name)
+    path = os.path.join(POOL_DIR, name)
     with open(path, "wb") as f:
         f.write(out_bytes)
+    return f"/static/pool/{name}"
 
-    if old_url and old_url.startswith(f"/static/{subdir}/"):
-        old_path = os.path.join(UPLOAD_ROOT, old_url.removeprefix("/static/"))
-        if os.path.isfile(old_path):
-            os.remove(old_path)
+def ref_count(url: str) -> int:
+    n = 0
+    for u in users.values():
+        if u.get("avatar") == url:
+            n += 1
+    for p in posts.values():
+        if p.get("cover") == url:
+            n += 1
+        if url in p["content"]:
+            n += 1
+    return n
 
-    return f"/static/{subdir}/{name}"
+def cleanup_uploads():
+    """删 24h 以上且引用数为 0 的池文件"""
+    cutoff = time.time() - 24 * 3600
+    removed = 0
+    if not os.path.isdir(POOL_DIR):
+        return removed
+    for name in os.listdir(POOL_DIR):
+        path = os.path.join(POOL_DIR, name)
+        if not os.path.isfile(path):
+            continue
+        try:
+            if os.path.getmtime(path) > cutoff:
+                continue
+        except OSError:
+            continue
+        url = f"/static/pool/{name}"
+        if ref_count(url) == 0:
+            try:
+                os.remove(path)
+                removed += 1
+            except OSError:
+                pass
+    return removed
 
+def _seconds_until(hour: int, minute: int = 0) -> float:
+    """返回距离下一个 hour:minute 的秒数（本地时区）"""
+    now_local = datetime.now()
+    target = now_local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if target <= now_local:
+        target += timedelta(days=1)
+    return (target - now_local).total_seconds()
+
+def cleanup_loop():
+    while True:
+        wait = _seconds_until(4, 0)
+        time.sleep(max(1, wait))
+        try:
+            n = cleanup_uploads()
+            print(f"[cleanup] removed {n} unused pool files")
+        except Exception as e:
+            print("cleanup failed:", e)
+
+threading.Thread(target=cleanup_loop, daemon=True).start()
+
+# ---------- 友链 ----------
 def make_friend(d: dict) -> dict:
     global _next_fid
     f = {
@@ -422,17 +490,14 @@ tag_vue = make_tag("Vue", "vue")
 tag_nuxt = make_tag("Nuxt", "nuxt")
 tag_note = make_tag("随笔", "note")
 
-# 先建介绍文（它的标题会成为系列标题）
 p1 = make_post(alice["id"], "Nuxt 从零开始",
                "# 你好\n\n这是**第一篇**文章。\n\n- 支持列表\n- 支持 `code`",
                tag_ids=[tag_vue["id"]], featured=True)
 
-# 再建系列，intro_post_id 指向 p1
 s1 = make_series(alice["id"], "nuxt-from-scratch",
                  "从零写一个 Nuxt 前端，一步步来。",
                  intro_post_id=p1["id"])
 
-# 系列正文文章
 p2 = make_post(alice["id"], "Markdown 测试",
                "## 二级标题\n\n```python\nprint('hi')\n```",
                tag_ids=[tag_nuxt["id"]],
@@ -445,21 +510,15 @@ p3 = make_post(bob["id"], "Bob 的文章",
 make_comment(p1["id"], bob["id"], "写得不错！")
 make_comment(p1["id"], alice["id"], "谢谢～")
 
-make_friend({
-    "name": "Nuxt", "url": "https://nuxt.com", "description": "The Intuitive Vue Framework",
-    "avatar": "https://nuxt.com/icon.png", "theme_color": "#00dc82", "skin": "neon",
-    "tags": ["Vue", "框架"], "order": 1,
-})
-make_friend({
-    "name": "Vue", "url": "https://vuejs.org", "description": "The Progressive JavaScript Framework",
-    "avatar": "https://vuejs.org/logo.svg", "theme_color": "#42b883", "skin": "minimal",
-    "tags": ["前端"], "order": 2,
-})
-make_friend({
-    "name": "Tailwind", "url": "https://tailwindcss.com", "description": "Rapidly build modern websites",
-    "theme_color": "#38bdf8", "skin": "tilt",
-    "tags": ["CSS"], "order": 3,
-})
+make_friend({"name": "Nuxt", "url": "https://nuxt.com", "description": "The Intuitive Vue Framework",
+             "avatar": "https://nuxt.com/icon.png", "theme_color": "#00dc82", "skin": "neon",
+             "tags": ["Vue", "框架"], "order": 1})
+make_friend({"name": "Vue", "url": "https://vuejs.org", "description": "The Progressive JavaScript Framework",
+             "avatar": "https://vuejs.org/logo.svg", "theme_color": "#42b883", "skin": "minimal",
+             "tags": ["前端"], "order": 2})
+make_friend({"name": "Tailwind", "url": "https://tailwindcss.com", "description": "Rapidly build modern websites",
+             "theme_color": "#38bdf8", "skin": "tilt",
+             "tags": ["CSS"], "order": 3})
 
 # ---------- 鉴权依赖 ----------
 def get_me(authorization: Optional[str] = Header(None)) -> dict:
@@ -473,10 +532,9 @@ def get_me(authorization: Optional[str] = Header(None)) -> dict:
 
 # ---------- 应用 ----------
 app = FastAPI(title="Fake Backend")
-app.mount("/static", StaticFiles(directory="uploads"), name="static")
+app.mount("/static", StaticFiles(directory=UPLOAD_ROOT), name="static")
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"], allow_credentials=True,
+    CORSMiddleware, allow_origins=["*"], allow_credentials=True,
     allow_methods=["*"], allow_headers=["*"],
 )
 
@@ -516,21 +574,78 @@ def user_detail(user_id: int):
         raise HTTPException(404, "用户不存在")
     return public_user(u)
 
+@app.put("/api/user/me", response_model=User)
+def update_me(body: ProfileIn, me: dict = Depends(get_me)):
+    if body.username is not None:
+        new_name = body.username.strip()
+        if not new_name:
+            raise HTTPException(400, "用户名不能为空")
+        if new_name != me["username"] and new_name in usernames:
+            raise HTTPException(409, "用户名已存在")
+        usernames.pop(me["username"], None)
+        me["username"] = new_name
+        usernames[new_name] = me["id"]
+    if body.email is not None:
+        me["email"] = body.email.strip() or None
+    if body.password:
+        if len(body.password) < 6:
+            raise HTTPException(400, "密码至少 6 位")
+        me["password"] = body.password
+    # 头像绑定/解绑：null 解绑（不删文件，交给清理）
+    if body.avatar is not None or "avatar" in body.model_fields_set:
+        if body.avatar and not body.avatar.startswith("/static/pool/"):
+            raise HTTPException(400, "头像必须是图片池 URL")
+        me["avatar"] = body.avatar or None
+    return self_user(me)
+
 # ===== 标签 =====
 @app.get("/api/tags", response_model=list[Tag])
 def list_tags():
-    return [Tag(**t) for t in tags.values()]
+    return [tag_out(t) for t in tags.values()]
+
+@app.post("/api/tags", response_model=Tag, status_code=201)
+def create_tag(body: TagIn, me: dict = Depends(get_me)):
+    if not body.name.strip() or not body.slug.strip():
+        raise HTTPException(400, "名称和 slug 必填")
+    if any(t["slug"] == body.slug.strip() for t in tags.values()):
+        raise HTTPException(409, "slug 已存在")
+    if any(t["name"] == body.name.strip() for t in tags.values()):
+        raise HTTPException(409, "标签已存在")
+    t = make_tag(body.name.strip(), body.slug.strip())
+    return tag_out(t)
+
+@app.put("/api/tags/{tag_id}", response_model=Tag)
+def update_tag(tag_id: int, body: TagUpdateIn, me: dict = Depends(get_me)):
+    t = tags.get(tag_id)
+    if not t:
+        raise HTTPException(404, "标签不存在")
+    new_name = body.name.strip()
+    if not new_name:
+        raise HTTPException(400, "名称不能为空")
+    if any(x["name"] == new_name and x["id"] != tag_id for x in tags.values()):
+        raise HTTPException(409, "标签已存在")
+    t["name"] = new_name
+    return tag_out(t)
+
+@app.delete("/api/tags/{tag_id}", status_code=204)
+def delete_tag(tag_id: int, me: dict = Depends(get_me)):
+    if tag_id not in tags:
+        raise HTTPException(404, "标签不存在")
+    del tags[tag_id]
+    # 级联清 post_tags
+    for pid, tids in post_tags.items():
+        tids.discard(tag_id)
+    return None
 
 # ===== 系列 =====
 @app.get("/api/series", response_model=list[Series])
 def list_series(
     q: Optional[str] = None,
-    sort: str = "updated_at",   # updated_at | created_at | title
+    sort: str = "updated_at",
     order: str = "desc",
 ):
     items = list(series.values())
 
-    # 搜索：用介绍文的 title + content 匹配
     if q:
         kw = q.strip().lower()
         if kw:
@@ -549,7 +664,7 @@ def list_series(
         items.sort(key=title_of, reverse=reverse)
     elif sort == "created_at":
         items.sort(key=lambda s: s["created_at"], reverse=reverse)
-    else:  # updated_at
+    else:
         items.sort(key=lambda s: s.get("updated_at", s["created_at"]), reverse=reverse)
 
     return [series_out(s) for s in items]
@@ -583,12 +698,8 @@ def create_series(body: SeriesIn, me: dict = Depends(get_me)):
         raise HTTPException(400, "介绍文不存在")
     if intro["user_id"] != me["id"] and me["role"] != "admin":
         raise HTTPException(403, "介绍文不是你的文章")
-    s = make_series(
-        me["id"],
-        body.slug.strip(),
-        body.description,
-        intro_post_id=body.intro_post_id,   # ← 关键字传，别用位置
-    )
+    s = make_series(me["id"], body.slug.strip(), body.description,
+                    intro_post_id=body.intro_post_id)
     return series_out(s)
 
 @app.put("/api/series/{series_id}", response_model=Series)
@@ -608,6 +719,7 @@ def update_series(series_id: int, body: SeriesIn, me: dict = Depends(get_me)):
     if body.slug:
         s["slug"] = body.slug.strip()
     s["description"] = body.description
+    s["updated_at"] = now()
     return series_out(s)
 
 @app.delete("/api/series/{series_id}", status_code=204)
@@ -640,7 +752,6 @@ def list_posts(
 ):
     items = list(posts.values())
 
-    # ---- 筛选（原有，不动） ----
     if q:
         kw = q.strip().lower()
         if kw:
@@ -661,14 +772,12 @@ def list_posts(
     if featured is not None:
         items = [p for p in items if bool(p.get("featured")) == featured]
 
-    # ---- 排序（新增） ----
     reverse = order == "desc"
     if sort == "title":
-        # 首字母/拼音近似：直接按字符串，中文排后面
         items.sort(key=lambda p: p["title"].lower(), reverse=reverse)
     elif sort == "series_order":
         items.sort(key=lambda p: (p.get("series_id") or 0, p.get("series_order") or 0), reverse=reverse)
-    else:  # created_at
+    else:
         items.sort(key=lambda p: p["created_at"], reverse=reverse)
 
     total = len(items)
@@ -682,6 +791,36 @@ def get_post(post_id: int):
     if not p:
         raise HTTPException(404, "文章不存在")
     return post_out(p)
+
+@app.get("/api/posts/{post_id}/adjacent", response_model=AdjacentOut)
+def get_adjacent(post_id: int):
+    p = posts.get(post_id)
+    if not p:
+        raise HTTPException(404, "文章不存在")
+
+    sid = p.get("series_id")
+    if not sid or sid not in series:
+        return AdjacentOut(prev=None, next=None, series=None)
+
+    siblings = sorted(
+        [x for x in posts.values() if x.get("series_id") == sid],
+        key=lambda x: x.get("series_order") or 0,
+    )
+    idx = next((i for i, x in enumerate(siblings) if x["id"] == post_id), -1)
+    if idx < 0:
+        return AdjacentOut(prev=None, next=None, series=None)
+
+    s = series[sid]
+    intro = posts.get(s.get("intro_post_id")) if s.get("intro_post_id") else None
+    return AdjacentOut(
+        prev=post_out(siblings[idx - 1]) if idx > 0 else None,
+        next=post_out(siblings[idx + 1]) if idx < len(siblings) - 1 else None,
+        series={
+            "id": s["id"], "slug": s["slug"],
+            "title": intro["title"] if intro else "（无标题系列）",
+            "index": idx + 1, "total": len(siblings),
+        },
+    )
 
 @app.post("/api/posts", response_model=Post, status_code=201)
 def create_post(body: PostIn, me: dict = Depends(get_me)):
@@ -712,20 +851,23 @@ def update_post(post_id: int, body: PostIn, me: dict = Depends(get_me)):
         raise HTTPException(403, "只有管理员可设精选")
     if body.series_id and body.series_id not in series:
         raise HTTPException(400, "系列不存在")
+
+    old_series_id = p.get("series_id")
+
     p["title"] = body.title
     p["content"] = body.content
     p["featured"] = body.featured
     p["series_id"] = body.series_id
     p["series_order"] = body.series_order
     p["updated_at"] = now()
-    old_series_id = p.get("series_id")
-    p["series_id"] = body.series_id
-    if body.cover is not None:
+
+    if "cover" in body.model_fields_set:
         p["cover"] = body.cover
+
     post_tags[p["id"]] = set(body.tag_ids)
 
     touch_series(old_series_id)
-    touch_series(body_series_id)
+    touch_series(body.series_id)
     return post_out(p)
 
 @app.delete("/api/posts/{post_id}", status_code=204)
@@ -736,7 +878,6 @@ def delete_post(post_id: int, me: dict = Depends(get_me)):
     ensure_can_modify(p, me)
     sid = p.get("series_id")
 
-    # 检查是否被系列引用为介绍文
     used_by = next((s for s in series.values() if s.get("intro_post_id") == post_id), None)
     if used_by:
         raise HTTPException(409, f"该文章是系列《{used_by['slug']}》的介绍文，请先更换介绍文再删除")
@@ -746,11 +887,31 @@ def delete_post(post_id: int, me: dict = Depends(get_me)):
     post_tags.pop(post_id, None)
     return None
 
+# ===== 图片池上传 =====
 @app.post("/api/uploads/images", response_model=PostImageOut)
-async def upload_generic_image(file: UploadFile = File(...), me: dict = Depends(get_me)):
+async def upload_image(file: UploadFile = File(...), me: dict = Depends(get_me)):
     data = await file.read()
-    url = save_image(data, file.content_type, "posts", None)
+    url = save_image(data, file.content_type)
     return PostImageOut(url=url)
+
+@app.get("/api/uploads/images", response_model=list[PoolImage])
+def list_pool_images(limit: int = 60, me: dict = Depends(get_me)):
+    if not os.path.isdir(POOL_DIR):
+        return []
+    files = []
+    for name in os.listdir(POOL_DIR):
+        path = os.path.join(POOL_DIR, name)
+        if not os.path.isfile(path):
+            continue
+        st = os.stat(path)
+        files.append(PoolImage(
+            url=f"/static/pool/{name}",
+            filename=name,
+            size=st.st_size,
+            mtime=st.st_mtime,
+        ))
+    files.sort(key=lambda f: f.mtime, reverse=True)
+    return files[:limit]
 
 # ===== 评论 =====
 @app.get("/api/posts/{post_id}/comments", response_model=list[Comment])
@@ -784,95 +945,9 @@ def delete_comment(comment_id: int, me: dict = Depends(get_me)):
     del comments[comment_id]
     return None
 
-# ===== 头像 =====
-@app.post("/api/user/me/avatar", response_model=User)
-async def upload_avatar(file: UploadFile = File(...), me: dict = Depends(get_me)):
-    data = await file.read()
-    me["avatar"] = save_image(data, file.content_type, "avatars", me.get("avatar"))
-    return self_user(me)
-
-@app.post("/api/posts/{post_id}/images", response_model=PostImageOut)
-async def upload_post_image(
-    post_id: int,
-    file: UploadFile = File(...),
-    me: dict = Depends(get_me),
-):
-    p = posts.get(post_id)
-    if not p:
-        raise HTTPException(404, "文章不存在")
-    if p["user_id"] != me["id"] and me["role"] != "admin":
-        raise HTTPException(403, "无权修改")
-    data = await file.read()
-    url = save_image(data, file.content_type, "posts", None)
-    return PostImageOut(url=url)
-
-@app.delete("/api/user/me/avatar", response_model=User)
-def delete_avatar(me: dict = Depends(get_me)):
-    old = me.get("avatar")
-    if old and old.startswith("/static/avatars/"):
-        p = os.path.join(UPLOAD_ROOT, old.removeprefix("/static/"))
-        if os.path.isfile(p):
-            os.remove(p)
-    me["avatar"] = None
-    return self_user(me)
-
-@app.post("/api/posts/{post_id}/cover", response_model=Post)
-async def upload_post_cover(
-    post_id: int,
-    file: UploadFile = File(...),
-    me: dict = Depends(get_me),
-):
-    p = posts.get(post_id)
-    if not p:
-        raise HTTPException(404, "文章不存在")
-    if p["user_id"] != me["id"] and me["role"] != "admin":
-        raise HTTPException(403, "无权修改")
-    data = await file.read()
-    p["cover"] = save_image(data, file.content_type, "posts", p.get("cover"))
-    p["updated_at"] = now()
-    return post_out(p)
-
-@app.delete("/api/posts/{post_id}/cover", response_model=Post)
-def delete_post_cover(post_id: int, me: dict = Depends(get_me)):
-    p = posts.get(post_id)
-    if not p:
-        raise HTTPException(404, "文章不存在")
-    if p["user_id"] != me["id"] and me["role"] != "admin":
-        raise HTTPException(403, "无权修改")
-    old = p.get("cover")
-    if old and old.startswith("/static/posts/"):
-        path = os.path.join(UPLOAD_ROOT, old.removeprefix("/static/"))
-        if os.path.isfile(path):
-            os.remove(path)
-    p["cover"] = None
-    p["updated_at"] = now()
-    return post_out(p)
-
-@app.put("/api/user/me", response_model=User)
-def update_me(body: ProfileIn, me: dict = Depends(get_me)):
-    if body.username is not None:
-        new_name = body.username.strip()
-        if not new_name:
-            raise HTTPException(400, "用户名不能为空")
-        if new_name != me["username"] and new_name in usernames:
-            raise HTTPException(409, "用户名已存在")
-        usernames.pop(me["username"], None)
-        me["username"] = new_name
-        usernames[new_name] = me["id"]
-    if body.email is not None:
-        me["email"] = body.email.strip() or None
-    if body.password:
-        if len(body.password) < 6:
-            raise HTTPException(400, "密码至少 6 位")
-        me["password"] = body.password
-    return self_user(me)
-
+# ===== 搜索 =====
 @app.get("/api/search", response_model=SearchOut)
-def search(
-    q: str = "",
-    type: Optional[str] = None,
-    limit: int = 8,
-):
+def search(q: str = "", type: Optional[str] = None, limit: int = 8):
     kw = q.strip().lower()
     items: list[SearchItem] = []
 
@@ -910,8 +985,7 @@ def search(
             items.append(SearchItem(
                 type="series", id=s["id"], title=intro["title"],
                 subtitle=f"系列 · {sum(1 for p in posts.values() if p.get('series_id')==s['id'])} 篇",
-                url=f"/series/{s['slug']}",
-                matched="series",
+                url=f"/series/{s['slug']}", matched="series",
             ))
 
     for t in tags.values():
@@ -919,41 +993,25 @@ def search(
             items.append(SearchItem(
                 type="tag", id=t["id"], title=t["name"],
                 subtitle=f"标签 · #{t['slug']}",
-                url=f"/posts?tag={t['slug']}",
-                matched="tag",
+                url=f"/posts?tag={t['slug']}", matched="tag",
             ))
 
     for u in users.values():
         if kw in u["username"].lower():
             items.append(SearchItem(
                 type="user", id=u["id"], title=u["username"],
-                subtitle="用户",
-                url=f"/user/{u['id']}",
-                matched="user",
+                subtitle="用户", url=f"/user/{u['id']}", matched="user",
             ))
 
     if type:
-        items = [i for i in items if i.type == type]   # ← 属性访问
+        items = [i for i in items if i.type == type]
 
     order = {"post": 0, "series": 1, "tag": 2, "user": 3}
-    items.sort(key=lambda i: (order[i.type], len(i.title)))   # ← 属性访问
+    items.sort(key=lambda i: (order[i.type], len(i.title)))
 
-    return SearchOut(
-        items=items[:limit],
-        post_filters={"q": q},
-    )
+    return SearchOut(items=items[:limit], post_filters={"q": q})
 
-@app.post("/api/tags", response_model=Tag, status_code=201)
-def create_tag(body: TagIn, me: dict = Depends(get_me)):
-    if not body.name.strip() or not body.slug.strip():
-        raise HTTPException(400, "名称和 slug 必填")
-    if any(t["slug"] == body.slug.strip() for t in tags.values()):
-        raise HTTPException(409, "slug 已存在")
-    if any(t["name"] == body.name.strip() for t in tags.values()):
-        raise HTTPException(409, "标签已存在")
-    t = make_tag(body.name.strip(), body.slug.strip())
-    return Tag(**t)
-
+# ===== 友链 =====
 @app.get("/api/friends", response_model=list[FriendLink])
 def list_friends():
     items = [f for f in friends.values() if f["visible"]]

@@ -11,6 +11,7 @@ export interface Tag {
   id: number
   name: string
   slug: string
+  post_count?: number
 }
 
 export interface Series {
@@ -102,6 +103,7 @@ export interface ProfilePayload {
   username?: string
   email?: string
   password?: string
+  avatar?: string | null
 }
 
 export interface SearchItem {
@@ -142,4 +144,11 @@ export interface FriendLinkIn {
   tags?: string[]
   order?: number
   visible?: boolean
+}
+
+export interface PoolImage {
+  url: string
+  filename: string
+  size: number
+  mtime: number
 }

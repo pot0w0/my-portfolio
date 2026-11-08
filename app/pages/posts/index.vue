@@ -287,7 +287,10 @@ const showToolbarFilters = computed(() =>
         class="px-2 py-0.5 rounded text-xs border border-border"
         :class="tag === t.slug ? 'bg-primary/10 text-primary border-primary/40' : 'text-muted'"
         @click="setTag(t.slug)"
-      ># {{ t.name }}</button>
+      ># {{ t.name }}<span 
+          v-if="t.post_count" class="text-faint ml-1">({{ t.post_count }})
+        </span>
+      </button>
     </div>
 
     <PostEditor v-if="showEditor" :post="null" @saved="onSaved" @cancel="showEditor = false" />

@@ -8,14 +8,14 @@ const emit = defineEmits<{
 }>()
 
 const { create, update } = usePosts()
-const saving = ref(false)
-const saveError = ref('')
 const { tags, load, createTag } = useTaxonomy()
 const { isAdmin } = useAuth()
+const { uploadImage } = useUpload()
 const api = useApi()
-
 const mediaUrl = useMediaUrl()
-const { uploadPostCover, removePostCover, uploadBodyImage } = useUpload()
+
+const saving = ref(false)
+const saveError = ref('')
 
 const title = ref(props.post?.title ?? '')
 const content = ref(props.post?.content ?? '')
@@ -32,15 +32,25 @@ const coverUrl = ref<string | null>(props.post?.cover ?? null)
 const coverFile = ref<File | null>(null)
 const coverPreview = ref<string | null>(null)
 const coverInput = ref<HTMLInputElement | null>(null)
+const coverRemove = ref(false)
+const showCoverPicker = ref(false)
 
+// 标签
 const newTagName = ref('')
 const creatingTag = ref(false)
 
+// 正文图
+const bodyImgInput = ref<HTMLInputElement | null>(null)
+const uploadingImage = ref(false)
+const contentEl = ref<HTMLTextAreaElement | null>(null)
+const showBodyPicker = ref(false)
+
 onMounted(async () => {
-  await load()
-  try {
-    seriesList.value = await api.get<Series[]>('/api/series', undefined, { silent: true })
-  } catch { seriesList.value = [] }
+  const [, seriesRes] = await Promise.allSettled([
+    load(),
+    api.get<Series[]>('/api/series', undefined, { silent: true }),
+  ])
+  if (seriesRes.status === 'fulfilled') seriesList.value = seriesRes.value
 })
 
 function suggestOrder() {
@@ -53,24 +63,41 @@ function onSeriesChange() {
   else seriesOrder.value = null
 }
 
+// 封面：选文件
 function onCoverPick(e: Event) {
   const f = (e.target as HTMLInputElement).files?.[0]
   if (!f) return
+  if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(f.type)) {
+    saveError.value = '封面仅支持 png/jpeg/webp/gif'; return
+  }
+  if (f.size > 2 * 1024 * 1024) { saveError.value = '封面不能超过 2MB'; return }
   coverFile.value = f
+  coverRemove.value = false
   if (coverPreview.value) URL.revokeObjectURL(coverPreview.value)
   coverPreview.value = URL.createObjectURL(f)
+  if (coverInput.value) coverInput.value.value = ''
+}
+// 封面：从池中选
+function onCoverPicked(url: string) {
+  coverUrl.value = url
+  coverFile.value = null
+  coverRemove.value = false
+  if (coverPreview.value) URL.revokeObjectURL(coverPreview.value)
+  coverPreview.value = null
 }
 function clearCover() {
   coverFile.value = null
   if (coverPreview.value) URL.revokeObjectURL(coverPreview.value)
   coverPreview.value = null
-  coverUrl.value = null
+  coverRemove.value = true
 }
+function undoRemoveCover() { coverRemove.value = false }
+onBeforeUnmount(() => { if (coverPreview.value) URL.revokeObjectURL(coverPreview.value) })
 
+// 标签
 async function addTag() {
   const name = newTagName.value.trim()
   if (!name) return
-  // 已存在同名标签，直接选中
   const exist = tags.value.find(t => t.name === name)
   if (exist) {
     if (!tagIds.value.includes(exist.id)) tagIds.value.push(exist.id)
@@ -82,22 +109,20 @@ async function addTag() {
     const t = await createTag(name)
     tagIds.value.push(t.id)
     newTagName.value = ''
-  } catch {} finally {
-    creatingTag.value = false
-  }
+  } catch {} finally { creatingTag.value = false }
 }
 
-// 正文图
-const bodyImgInput = ref<HTMLInputElement | null>(null)
-const uploadingImage = ref(false)
-const contentEl = ref<HTMLTextAreaElement | null>(null)
-
+// 正文图：从池中选
+function onBodyPicked(url: string) {
+  insertAtCursor(`![图片](${mediaUrl(url)})`)
+}
+// 正文图：选文件上传（如果仍保留"直接上传"按钮）
 async function onBodyImagePick(e: Event) {
   const f = (e.target as HTMLInputElement).files?.[0]
   if (!f) return
   uploadingImage.value = true
   try {
-    const { url } = await uploadBodyImage(f)
+    const url = await uploadImage(f)
     insertAtCursor(`![图片](${mediaUrl(url)})`)
   } catch {} finally {
     uploadingImage.value = false
@@ -123,6 +148,17 @@ async function save() {
   saving.value = true
   saveError.value = ''
   try {
+    let finalCover: string | null | undefined = undefined
+    if (coverFile.value) {
+      finalCover = await uploadImage(coverFile.value)
+    } else if (coverRemove.value) {
+      finalCover = null
+    }
+    // coverPreview 有值但 coverFile 为空 = 从池中选了图，coverUrl 已更新，finalCover 应取 coverUrl
+    else if (coverUrl.value) {
+      finalCover = coverUrl.value
+    }
+
     const payload: PostPayload = {
       title: title.value.trim(),
       content: content.value,
@@ -131,21 +167,11 @@ async function save() {
       series_id: seriesId.value,
       series_order: seriesId.value ? seriesOrder.value : null,
     }
+    if (finalCover !== undefined) payload.cover = finalCover
 
-    // 1. 建/改文章
-    let p: Post
-    if (props.post) {
-      p = await update(props.post.id, payload)
-    } else {
-      p = await create(payload)
-    }
-
-    // 2. 封面：有文件就传，编辑时移除就删
-    if (coverFile.value) {
-      p = await uploadPostCover(p.id, coverFile.value)
-    } else if (props.post?.cover && !coverUrl.value) {
-      p = await removePostCover(p.id)
-    }
+    const p = props.post
+      ? await update(props.post.id, payload)
+      : await create(payload)
 
     emit('saved', p)
   } catch (e: any) {
@@ -158,6 +184,7 @@ async function save() {
 
 <template>
   <div class="bg-surface border border-border rounded-lg p-5 space-y-5">
+    <!-- 头部 -->
     <div class="flex items-center justify-between">
       <h3 class="font-semibold">{{ post ? '编辑文章' : '写文章' }}</h3>
       <button class="text-sm text-primary hover:underline" type="button" @click="preview = !preview">
@@ -165,45 +192,95 @@ async function save() {
       </button>
     </div>
 
+    <!-- 写作区 -->
     <template v-if="!preview">
-      <input v-model="title" placeholder="标题" class="w-full border border-border rounded px-3 py-2 font-medium text-lg bg-surface" />
-      <textarea v-model="content" placeholder="正文（支持 Markdown）" rows="14" class="w-full border border-border rounded px-3 py-2 font-mono text-sm bg-surface" />
+      <input
+        v-model="title"
+        placeholder="标题"
+        class="w-full border border-border rounded px-3 py-2 font-medium text-lg bg-surface"
+      />
+      <textarea
+        ref="contentEl"
+        v-model="content"
+        placeholder="正文（支持 Markdown）"
+        rows="14"
+        class="w-full border border-border rounded px-3 py-2 font-mono text-sm bg-surface"
+      />
     </template>
     <div v-else class="border border-border rounded p-5 bg-surface">
       <h1 class="text-2xl font-bold mb-4">{{ title || '（无标题）' }}</h1>
       <div class="prose prose-sm max-w-none"><MDC :value="content || '（无内容）'" /></div>
     </div>
 
-    <!-- 封面选择（新建时先本地预览，保存后上传；编辑时直接上传） -->
+    <!-- 封面 -->
     <div v-if="!preview" class="space-y-2">
       <span class="text-xs text-faint">封面图（可选）</span>
-      <div class="flex items-center gap-3">
+      <div class="flex items-center gap-3 flex-wrap">
         <div class="w-32 aspect-video rounded border border-border overflow-hidden bg-surface-2">
-          <img v-if="coverPreview || coverUrl" :src="coverPreview || mediaUrl(coverUrl)" class="w-full h-full object-cover" />
+          <img
+            v-if="coverPreview || (coverUrl && !coverRemove)"
+            :src="coverPreview || mediaUrl(coverUrl)"
+            class="w-full h-full object-cover"
+            alt=""
+          />
           <div v-else class="w-full h-full flex items-center justify-center text-faint text-xs">无封面</div>
         </div>
+
         <input ref="coverInput" type="file" accept="image/*" class="hidden" @change="onCoverPick" />
-        <button type="button" class="px-2 py-1 border border-border rounded text-xs" @click="coverInput?.click()">选择封面</button>
-        <button v-if="coverPreview || coverUrl" type="button" class="px-2 py-1 border border-danger text-danger rounded text-xs" @click="clearCover">移除</button>
+
+        <button
+          type="button"
+          class="px-2 py-1 border border-border rounded text-xs hover:bg-surface-2"
+          @click="showCoverPicker = true"
+        >从图片池选</button>
+        <button
+          type="button"
+          class="px-2 py-1 border border-border rounded text-xs hover:bg-surface-2"
+          @click="coverInput?.click()"
+        >上传新图</button>
+
+        <button
+          v-if="coverPreview || (coverUrl && !coverRemove)"
+          type="button"
+          class="px-2 py-1 border border-danger text-danger rounded text-xs"
+          @click="clearCover"
+        >移除</button>
+        <button
+          v-else-if="coverRemove && coverUrl"
+          type="button"
+          class="px-2 py-1 border border-border rounded text-xs"
+          @click="undoRemoveCover"
+        >取消移除</button>
       </div>
     </div>
     <hr class="border-border" />
 
+    <!-- 系列 -->
     <div class="grid gap-3 md:grid-cols-2">
       <label class="block">
         <span class="text-xs text-faint mb-1 block">系列</span>
-        <select v-model="seriesId" class="w-full border border-border rounded px-3 py-2 bg-surface text-sm" @change="onSeriesChange">
+        <select
+          v-model="seriesId"
+          class="w-full border border-border rounded px-3 py-2 bg-surface text-sm"
+          @change="onSeriesChange"
+        >
           <option :value="null">散篇（不属于系列）</option>
           <option v-for="s in seriesList" :key="s.id" :value="s.id">{{ s.title }}</option>
         </select>
       </label>
       <label v-if="seriesId" class="block">
         <span class="text-xs text-faint mb-1 block">系列内序号</span>
-        <input v-model.number="seriesOrder" type="number" min="1" class="w-full border border-border rounded px-3 py-2 bg-surface text-sm" />
+        <input
+          v-model.number="seriesOrder"
+          type="number"
+          min="1"
+          class="w-full border border-border rounded px-3 py-2 bg-surface text-sm"
+        />
       </label>
     </div>
 
-    <div v-if="tags.length" class="space-y-2">
+    <!-- 标签 -->
+    <div class="space-y-2">
       <h4 class="text-sm font-medium text-muted">标签</h4>
       <div class="flex flex-wrap gap-2 items-center">
         <label
@@ -213,9 +290,9 @@ async function save() {
         >
           <input v-model="tagIds" type="checkbox" :value="t.id" class="hidden" />
           #{{ t.name }}
+          <span v-if="t.post_count" class="text-[10px] text-faint">({{ t.post_count }})</span>
         </label>
 
-        <!-- 新建标签 -->
         <div class="flex items-center gap-1 border border-dashed border-border rounded px-2 py-0.5">
           <span class="text-xs text-faint">#</span>
           <input
@@ -235,29 +312,57 @@ async function save() {
       </div>
     </div>
 
-    <div v-if="!preview" class="flex gap-2">
+    <!-- 正文图 -->
+    <div v-if="!preview" class="flex gap-2 flex-wrap">
       <input ref="bodyImgInput" type="file" accept="image/*" class="hidden" @change="onBodyImagePick" />
-      <button type="button" class="px-2 py-1 border border-border rounded text-xs" @click="bodyImgInput?.click()" :disabled="uploadingImage">
-        {{ uploadingImage ? '上传中…' : '插入正文图' }}
-      </button>
+      <button
+        type="button"
+        class="px-2 py-1 border border-border rounded text-xs hover:bg-surface-2"
+        @click="showBodyPicker = true"
+      >从图片池插入</button>
+      <button
+        type="button"
+        class="px-2 py-1 border border-border rounded text-xs hover:bg-surface-2 disabled:opacity-50"
+        :disabled="uploadingImage"
+        @click="bodyImgInput?.click()"
+      >{{ uploadingImage ? '上传中…' : '上传并插入' }}</button>
     </div>
 
+    <!-- 精选（admin） -->
     <label v-if="isAdmin" class="flex items-center gap-2 text-sm">
       <input v-model="featured" type="checkbox" /> 设为精选（首页展示）
     </label>
 
+    <!-- 错误 -->
+    <p v-if="saveError" class="text-sm text-danger">{{ saveError }}</p>
+
+    <!-- 操作栏 -->
     <div class="flex gap-2 justify-end pt-2 border-t border-border">
-      <button type="button" class="px-4 py-1.5 border border-border rounded hover:bg-surface-2" @click="emit('cancel')">取消</button>
+      <button
+        type="button"
+        class="px-4 py-1.5 border border-border rounded hover:bg-surface-2"
+        @click="emit('cancel')"
+      >取消</button>
       <button
         type="button"
         class="px-4 py-1.5 bg-primary text-white rounded hover:opacity-90 disabled:opacity-50"
         :disabled="saving || !title.trim() || !content.trim()"
         @click="save"
-      >
-        {{ saving ? '保存中…' : '保存' }}
-      </button>
-
-      <p v-if="saveError" class="text-sm text-danger">{{ saveError }}</p>
+      >{{ saving ? '保存中…' : '保存' }}</button>
     </div>
+
+    <!-- 弹窗 -->
+    <ImagePickerDialog
+      :open="showCoverPicker"
+      title="选择封面"
+      @close="showCoverPicker = false"
+      @picked="onCoverPicked"
+    />
+    <ImagePickerDialog
+      :open="showBodyPicker"
+      title="插入正文图"
+      @close="showBodyPicker = false"
+      @picked="onBodyPicked"
+    />
   </div>
 </template>
