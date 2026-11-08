@@ -1,801 +1,467 @@
 # API.md
 
-> 基于 `fake_backend.py` 契约整理，用于实现真后端。  
-> 基础路径：`/api`，静态资源：`/static`  
-> 鉴权：`Authorization: Bearer <token>`  
-> 时间格式：ISO 8601 UTC 字符串，如 `2026-11-08T12:00:00+00:00`  
-> 分页：`page` 从 1 开始
+# API 文档
 
----
+假后端：FastAPI + 内存存储。默认运行在 `http://localhost:3000`。
+
+- 交互式文档：`/docs`、`/openapi.json`
+- 静态资源：`/static/*` → `uploads/` 目录，图片池在 `uploads/pool/`
+- 前端地址（用于 RSS/分享链接）：`http://localhost:3001`
 
 ## 目录
 
 - [通用约定](#通用约定)
-- [数据模型](#数据模型)
-- [用户 / 鉴权](#用户--鉴权)
-- [文章](#文章)
-- [系列](#系列)
-- [标签](#标签)
-- [评论](#评论)
-- [图片上传](#图片上传)
-- [搜索](#搜索)
-- [友链](#友链)
+- [鉴权与用户](#鉴权与用户)
+- [文章 Posts](#文章-posts)
+- [标签 Tags](#标签-tags)
+- [系列 Series](#系列-series)
+- [评论 Comments](#评论-comments)
+- [图片池 Uploads](#图片池-uploads)
+- [搜索 Search](#搜索-search)
+- [友链 Friends](#友链-friends)
+- [RSS](#rss)
+- [数据结构](#数据结构)
 - [错误码](#错误码)
-- [实现注意事项](#实现注意事项)
+- [业务规则与坑点](#业务规则与坑点)
 
 ---
 
 ## 通用约定
 
-### 请求头
+### Base URL
 
-| Header | 说明 |
-|---|---|
-| `Authorization: Bearer <token>` | 需登录的接口必须携带 |
-| `Content-Type: application/json` | JSON 请求体 |
-| `Content-Type: multipart/form-data` | 文件上传 |
+http://localhost:3000
+```
 
-### 权限角色
-
-| 角色 | 说明 |
-|---|---|
-| `user` | 普通用户，可写自己的文章/评论，管理自己的资料 |
-| `admin` | 管理员，可设精选、管理友链、修改/删除任意文章 |
+### 鉴权
+需要登录的接口在请求头带：
+```
+Authorization: Bearer <token>
+```
+- token 由登录/注册返回，服务端内存存储，**重启即失效**，无过期时间。
+- 缺失或无效 → `401`。
 
 ### 分页响应
-
+列表类接口（目前仅 `/api/posts`）统一返回：
 ```json
-{
-  "data": [],
-  "total": 100,
-  "page": 1,
-  "limit": 10
-}
+{ "data": [...], "total": 100, "page": 1, "limit": 10 }
 ```
 
-### 删除成功
+### 时间格式
+所有 `created_at` / `updated_at` 为 ISO 8601 UTC 字符串，例如 `2024-01-01T00:00:00+00:00`。
 
-统一返回 `204 No Content`，无响应体。
+### CORS
+全开：`allow_origins=["*"]`，允许 credentials、所有方法和头。
 
 ---
 
-## 数据模型
+## 鉴权与用户
 
-### User（私有，仅本人可见）
+### POST `/api/user/login`
+登录。
 
-```json
-{
-  "id": 1,
-  "username": "alice",
-  "role": "admin",
-  "email": "alice@example.com",
-  "avatar": "/static/avatars/xxx.webp",
-  "created_at": "2026-11-08T12:00:00+00:00"
-}
-```
-
-### UserPublic（公开）
-
-```json
-{
-  "id": 1,
-  "username": "alice",
-  "email": "alice@example.com",
-  "avatar": "/static/avatars/xxx.webp",
-  "created_at": "2026-11-08T12:00:00+00:00"
-}
-```
-
-> 不含 `role`、`password`。真后端可考虑隐藏 `email`。
-
-### Tag
-
-```json
-{ "id": 1, "name": "Vue", "slug": "vue" }
-```
-
-### Series
-
-```json
-{
-  "id": 1,
-  "title": "Nuxt 从零开始",
-  "slug": "nuxt-from-scratch",
-  "description": "从零写一个 Nuxt 前端，一步步来。",
-  "cover": "/static/posts/xxx.webp",
-  "user_id": 1,
-  "intro_post_id": 1,
-  "author": { "id": 1, "username": "alice", "...": "..." },
-  "post_count": 2,
-  "created_at": "2026-11-08T12:00:00+00:00",
-  "updated_at": "2026-11-08T12:00:00+00:00"
-}
-```
-
-> **重要**：Series 无独立 `title` 字段，`title` 与 `cover` 派生自 `intro_post_id` 指向的文章。  
-> 无 intro 文章时 `title = "（无标题系列）"`，`cover = null`。
-
-### Post
-
-```json
-{
-  "id": 1,
-  "title": "Nuxt 从零开始",
-  "content": "# 你好\n\n这是**第一篇**文章。",
-  "user_id": 1,
-  "series_id": 1,
-  "series_order": 1,
-  "series": { "...": "Series 对象或 null" },
-  "tags": [{ "id": 1, "name": "Vue", "slug": "vue" }],
-  "featured": true,
-  "author": { "...": "UserPublic" },
-  "created_at": "2026-11-08T12:00:00+00:00",
-  "updated_at": "2026-11-08T12:00:00+00:00",
-  "cover": "/static/posts/xxx.webp",
-  "images": []
-}
-```
-
-### Comment
-
-```json
-{
-  "id": 1,
-  "post_id": 1,
-  "user_id": 2,
-  "content": "写得不错！",
-  "author": { "...": "UserPublic" },
-  "created_at": "2026-11-08T12:00:00+00:00"
-}
-```
-
-### FriendLink
-
-```json
-{
-  "id": 1,
-  "name": "Nuxt",
-  "url": "https://nuxt.com",
-  "description": "The Intuitive Vue Framework",
-  "avatar": "https://nuxt.com/icon.png",
-  "theme_color": "#00dc82",
-  "skin": "neon",
-  "tags": ["Vue", "框架"],
-  "order": 1,
-  "visible": true,
-  "created_at": "2026-11-08T12:00:00+00:00"
-}
-```
-
-### SearchItem / SearchOut
-
-```json
-{
-  "type": "post",
-  "id": 1,
-  "title": "Nuxt 从零开始",
-  "subtitle": "作者 alice",
-  "url": "/posts/1",
-  "matched": "title"
-}
-```
-
-```json
-{
-  "items": [],
-  "post_filters": { "q": "nuxt" }
-}
-```
-
-`type` 枚举：`post` | `series` | `tag` | `user`  
-`matched` 字段：`recent` | `popular` | `title` | `content` | `series` | `tag` | `user`
-
----
-
-## 用户 / 鉴权
-
-### 1. 获取当前用户
-
-```
-GET /api/user/me
-```
-
-**鉴权**：必须  
-**响应**：`User`
-
----
-
-### 2. 登录
-
-```
-POST /api/user/login
-```
-
-**请求体**
-
+**Body**
 ```json
 { "username": "alice", "password": "alice123" }
 ```
-
-**响应** `200`
-
+**200**
 ```json
 {
-  "token": "a1b2c3d4e5f6...",
-  "user": { "id": 1, "username": "alice", "role": "user", "...": "..." }
+  "token": "a1b2c3...",
+  "user": {
+    "id": 1, "username": "alice", "role": "admin",
+    "email": "alice@example.com", "avatar": null,
+    "created_at": "2024-01-01T00:00:00+00:00"
+  }
 }
 ```
-
-**错误**
-
-| 状态码 | 场景 |
-|---|---|
-| 401 | 用户名或密码错误 |
+**错误**：`401` 用户名或密码错误。
 
 ---
 
-### 3. 登出
+### POST `/api/user/register`
+注册并直接返回 token。
 
-```
-POST /api/user/logout
-```
-
-**鉴权**：可选（有 token 则作废）  
-**响应**：`204`
-
----
-
-### 4. 注册
-
-```
-POST /api/user/register
-```
-
-**请求体**
-
+**Body**
 ```json
-{ "username": "bob", "password": "bob123", "email": "bob@example.com" }
+{ "username": "carol", "password": "secret", "email": "c@example.com" }
 ```
+`email` 可选。**200** 同登录返回结构。
 
-`email` 可选。
-
-**响应** `200`：同登录（返回 token + user）
-
-**错误**
-
-| 状态码 | 场景 |
-|---|---|
-| 409 | 用户名已存在 |
+**错误**：`409` 用户名已存在。
 
 ---
 
-### 5. 查看用户公开信息
+### POST `/api/user/logout`
+登出，从 Header 取 token 并从内存移除。
 
-```
-GET /api/user/{user_id}
-```
-
-**响应**：`UserPublic`  
-**错误**：`404` 用户不存在
+**Header**：`Authorization: Bearer <token>`（可选）
+**204** 无 body。
 
 ---
 
-### 6. 更新当前用户资料
+### GET `/api/user/me`
+当前登录用户（含 `role`）。
 
-```
-PUT /api/user/me
-```
+**需登录**。**200** 返回 `User`。
 
-**鉴权**：必须  
-**请求体**（所有字段可选）
+---
 
+### PUT `/api/user/me`
+更新当前用户资料，所有字段可选。
+
+**需登录**。
+
+**Body**
 ```json
 {
-  "username": "new_name",
+  "username": "newname",
   "email": "new@example.com",
-  "password": "newpass"
+  "password": "newpass",
+  "avatar": "/static/pool/xxx.webp"
 }
 ```
+字段语义：
+- `username`：去空格后非空；与他人重名 → `409`；会同步更新用户名索引。
+- `email`：去空格，空串视为 `null`。
+- `password`：长度 < 6 → `400`。
+- `avatar`：三态语义
+  - **不传字段** → 不改
+  - **传 `null`** → 解绑
+  - **传值** → 必须是 `/static/pool/` 前缀，否则 `400`
 
-**响应**：`User`
-
-**错误**
-
-| 状态码 | 场景 |
-|---|---|
-| 400 | 用户名为空 / 密码少于 6 位 |
-| 409 | 新用户名已存在 |
-
----
-
-### 7. 上传头像
-
-```
-POST /api/user/me/avatar
-Content-Type: multipart/form-data
-```
-
-**字段**：`file`（图片）  
-**鉴权**：必须  
-**响应**：`User`（含新 `avatar` URL）
+**200** 返回更新后的 `User`。
 
 ---
 
-### 8. 删除头像
+### GET `/api/user/{user_id}`
+用户公开信息（不含 role、password）。
 
-```
-DELETE /api/user/me/avatar
-```
-
-**鉴权**：必须  
-**响应**：`User`（`avatar = null`）
+**200** 返回 `UserPublic`；**404** 不存在。
 
 ---
 
-## 文章
+## 文章 Posts
 
-### 1. 文章列表
+### GET `/api/posts`
+分页文章列表。
 
-```
-GET /api/posts
-```
-
-**Query 参数**
-
+**Query**
 | 参数 | 类型 | 默认 | 说明 |
 |---|---|---|---|
-| `page` | int | 1 | 页码，从 1 开始 |
+| `page` | int | 1 | 页码 |
 | `limit` | int | 10 | 每页数量 |
-| `user_id` | int | - | 按作者筛选 |
-| `series_id` | int | - | 按系列筛选 |
-| `standalone` | bool | - | true 时只返回不属于系列的文章 |
-| `tag` | string | - | 标签 slug |
-| `featured` | bool | - | 是否精选 |
-| `q` | string | - | 标题或内容模糊匹配 |
-| `year` | int | - | 创建年份 |
-| `sort` | string | `created_at` | `created_at` \| `title` \| `series_order` |
-| `order` | string | `desc` | `asc` \| `desc` |
+| `user_id` | int | - | 按作者过滤 |
+| `series_id` | int | - | 按系列过滤 |
+| `standalone` | bool | - | true 仅非系列文章 |
+| `tag` | str | - | **标签 slug**（不是 id）；不存在 → `404` |
+| `featured` | bool | - | 精选过滤 |
+| `q` | str | - | 标题/内容关键字（不区分大小写） |
+| `year` | int | - | 按创建年份 |
+| `sort` | str | `created_at` | `created_at` / `title` / `series_order` |
+| `order` | str | `desc` | `asc` / `desc` |
 
-**响应**：`PageOut`（`data` 为 `Post[]`）
-
-**错误**
-
-| 状态码 | 场景 |
-|---|---|
-| 404 | `tag` 指定的标签不存在 |
+**200** 返回 `PageOut`，`data` 为 `Post[]`（内嵌 `author`、`series`、`tags`）。
 
 ---
 
-### 2. 文章详情
-
-```
-GET /api/posts/{post_id}
-```
-
-**响应**：`Post`  
-**错误**：`404`
+### GET `/api/posts/{post_id}`
+文章详情。**404** 不存在。返回 `Post`。
 
 ---
 
-### 3. 创建文章
+### GET `/api/posts/{post_id}/adjacent`
+系列内前后篇导航。
 
+**200**
+```json
+{
+  "prev": { ...Post } | null,
+  "next": { ...Post } | null,
+  "series": {
+    "id": 1, "slug": "nuxt-from-scratch",
+    "title": "Nuxt 从零开始", "index": 2, "total": 5
+  } | null
+}
 ```
-POST /api/posts
-```
+非系列文章：三者全为 `null`。
 
-**鉴权**：必须  
-**请求体**
+---
 
+### POST `/api/posts`
+新建文章。**需登录**。
+
+**Body**
 ```json
 {
   "title": "标题",
   "content": "Markdown 内容",
   "tag_ids": [1, 2],
   "featured": false,
-  "series_id": null,
-  "series_order": null,
-  "cover": "/static/posts/xxx.webp"
+  "series_id": 1,
+  "series_order": 2,
+  "cover": "/static/pool/xxx.webp"
 }
 ```
+规则：
+- `title`、`content` 非空否则 `400`
+- `featured=true` 仅 `admin`，否则 `403`
+- `series_id` 必须存在，否则 `400`
 
-**响应** `201`：`Post`
-
-**错误**
-
-| 状态码 | 场景 |
-|---|---|
-| 400 | 标题或内容为空 / 系列不存在 |
-| 403 | 非 admin 设置 `featured=true` |
+**201** 返回 `Post`。
 
 ---
 
-### 4. 更新文章
+### PUT `/api/posts/{post_id}`
+更新文章。**需登录**，作者本人或 `admin`。
 
-```
-PUT /api/posts/{post_id}
-```
+**Body** 同 `POST /api/posts`。
 
-**鉴权**：必须（作者或 admin）  
-**请求体**：同创建  
-**响应**：`Post`
+**注意**：`cover` 使用 `model_fields_set` 判断——
+- **不传 `cover` 字段** → 不修改
+- **传 `cover: null`** → 清空封面
+- **传值** → 更新
 
-**错误**
-
-| 状态码 | 场景 |
-|---|---|
-| 403 | 无权操作 / 非 admin 设精选 |
-| 404 | 文章不存在 |
-| 400 | 系列不存在 |
-
-> ⚠️ 假后端此处有 bug（`body_series_id` 未定义），真实现请用 `body.series_id`。
+**200** 返回 `Post`；`404` 不存在；`403` 无权。
 
 ---
 
-### 5. 删除文章
+### DELETE `/api/posts/{post_id}`
+删除文章。**需登录**，作者本人或 `admin`。
 
-```
-DELETE /api/posts/{post_id}
-```
+- 若该文章是某系列的介绍文 → `409`，需先更换介绍文。
+- 删除会级联移除其标签关联，并 touch 所属系列。
 
-**鉴权**：必须（作者或 admin）  
-**响应**：`204`
-
-**错误**
-
-| 状态码 | 场景 |
-|---|---|
-| 403 | 无权操作 |
-| 404 | 文章不存在 |
-| 409 | 该文章是某系列介绍文，需先更换介绍文 |
+**204** 无 body。
 
 ---
 
-### 6. 上传文章封面
+## 标签 Tags
 
-```
-POST /api/posts/{post_id}/cover
-Content-Type: multipart/form-data
-```
+### GET `/api/tags`
+全部标签，含动态 `post_count`。
 
-**字段**：`file`  
-**鉴权**：必须（作者或 admin）  
-**响应**：`Post`
+**200** `Tag[]`。
 
 ---
 
-### 7. 删除文章封面
+### POST `/api/tags`
+新建标签。**需登录**。
 
-```
-DELETE /api/posts/{post_id}/cover
-```
-
-**鉴权**：必须（作者或 admin）  
-**响应**：`Post`
-
----
-
-### 8. 上传正文图片（绑定文章）
-
-```
-POST /api/posts/{post_id}/images
-Content-Type: multipart/form-data
-```
-
-**字段**：`file`  
-**鉴权**：必须（作者或 admin）  
-**响应**
-
-```json
-{ "url": "/static/posts/xxx.webp" }
-```
-
----
-
-## 系列
-
-### 1. 系列列表
-
-```
-GET /api/series
-```
-
-**Query 参数**
-
-| 参数 | 类型 | 默认 | 说明 |
-|---|---|---|---|
-| `q` | string | - | 匹配介绍文标题/内容 |
-| `sort` | string | `updated_at` | `updated_at` \| `created_at` \| `title` |
-| `order` | string | `desc` | `asc` \| `desc` |
-
-**响应**：`Series[]`
-
----
-
-### 2. 系列详情
-
-```
-GET /api/series/{slug}
-```
-
-**响应**
-
-```json
-{
-  "series": { "...": "Series" },
-  "intro": { "...": "Post 或 null" },
-  "posts": [ "...": "按 series_order 升序" ]
-}
-```
-
-**错误**：`404`
-
----
-
-### 3. 创建系列
-
-```
-POST /api/series
-```
-
-**鉴权**：必须  
-**请求体**
-
-```json
-{
-  "slug": "nuxt-from-scratch",
-  "description": "系列描述",
-  "intro_post_id": 1
-}
-```
-
-`intro_post_id` **必填**（假后端校验）。
-
-**响应** `201`：`Series`
-
-**错误**
-
-| 状态码 | 场景 |
-|---|---|
-| 400 | slug 为空 / 未指定介绍文 / 介绍文不存在 |
-| 403 | 介绍文不属于当前用户（admin 除外） |
-| 409 | slug 已存在 |
-
----
-
-### 4. 更新系列
-
-```
-PUT /api/series/{series_id}
-```
-
-**鉴权**：必须（作者或 admin）  
-**请求体**：同创建，`intro_post_id` 可选  
-**响应**：`Series`
-
-**错误**
-
-| 状态码 | 场景 |
-|---|---|
-| 403 | 无权修改 / 介绍文不属于当前用户 |
-| 404 | 系列不存在 |
-| 400 | 介绍文不存在 |
-
----
-
-### 5. 删除系列
-
-```
-DELETE /api/series/{series_id}
-```
-
-**鉴权**：必须（作者或 admin）  
-**响应**：`204`  
-**副作用**：该系列下所有文章的 `series_id` / `series_order` 置 `null`。
-
-**错误**
-
-| 状态码 | 场景 |
-|---|---|
-| 403 | 无权删除 |
-| 404 | 系列不存在 |
-
----
-
-## 标签
-
-### 1. 标签列表
-
-```
-GET /api/tags
-```
-
-**响应**：`Tag[]`
-
----
-
-### 2. 创建标签
-
-```
-POST /api/tags
-```
-
-**鉴权**：必须  
-**请求体**
-
+**Body**
 ```json
 { "name": "Vue", "slug": "vue" }
 ```
+- `name`、`slug` 均需非空 → 否则 `400`
+- `slug` 已存在 → `409`
+- `name` 已存在 → `409`
 
-**响应** `201`：`Tag`
-
-**错误**
-
-| 状态码 | 场景 |
-|---|---|
-| 400 | name 或 slug 为空 |
-| 409 | slug 已存在 / 标签名已存在 |
-
-> 假后端无更新/删除标签接口，真后端建议补：  
-> `PUT /api/tags/{id}`、`DELETE /api/tags/{id}`（admin）。
+**201** 返回 `Tag`。
 
 ---
 
-## 评论
+### PUT `/api/tags/{tag_id}`
+只允许改 `name`。**需登录**。
 
-### 1. 文章评论列表
-
+**Body**
+```json
+{ "name": "Vue.js" }
 ```
-GET /api/posts/{post_id}/comments
-```
+- 空名 → `400`
+- 重名（排除自身）→ `409`
+- 不存在 → `404`
 
-**响应**：`Comment[]`（按 id 升序）  
-**错误**：`404` 文章不存在
+**200** 返回 `Tag`。
 
 ---
 
-### 2. 发表评论
+### DELETE `/api/tags/{tag_id}`
+删除标签。**需登录**。级联从所有文章的 `post_tags` 中移除。
 
+**204**；`404` 不存在。
+
+---
+
+## 系列 Series
+
+> 系列没有独立标题和封面字段：**标题 = 介绍文的 title，封面 = 介绍文的 cover**。因此每个系列必须指定 `intro_post_id`。
+
+### GET `/api/series`
+系列列表。
+
+**Query**
+| 参数 | 类型 | 默认 | 说明 |
+|---|---|---|---|
+| `q` | str | - | 匹配介绍文标题/内容 |
+| `sort` | str | `updated_at` | `updated_at` / `created_at` / `title` |
+| `order` | str | `desc` | `asc` / `desc` |
+
+**200** `Series[]`。
+
+---
+
+### GET `/api/series/{slug}`
+按 **slug** 取系列详情（注意不是 id）。
+
+**200**
+```json
+{
+  "series": { ...Series },
+  "intro": { ...Post } | null,
+  "posts": [ { ...Post } ]
+}
 ```
-POST /api/posts/{post_id}/comments
+`posts` 按 `series_order` 升序（`None` 视为 0）。
+
+**404** 不存在。
+
+---
+
+### POST `/api/series`
+新建系列。**需登录**。
+
+**Body**
+```json
+{
+  "slug": "nuxt-from-scratch",
+  "description": "从零写一个 Nuxt 前端。",
+  "intro_post_id": 1
+}
 ```
+规则：
+- `slug` 非空且唯一，否则 `400`/`409`
+- `intro_post_id` 必填且文章存在，否则 `400`
+- 介绍文必须是自己（或 admin），否则 `403`
 
-**鉴权**：必须  
-**请求体**
+**201** 返回 `Series`。
 
+---
+
+### PUT `/api/series/{series_id}`
+更新系列。**需登录**，作者本人或 `admin`。
+
+**Body** 同创建（`intro_post_id` 可选，传则校验归属）。会更新 `updated_at`。
+
+**200** 返回 `Series`。
+
+---
+
+### DELETE `/api/series/{series_id}`
+删除系列。**需登录**，作者本人或 `admin`。
+
+系列内所有文章的 `series_id` / `series_order` 置为 `null`（文章保留）。
+
+**204**。
+
+---
+
+## 评论 Comments
+
+### GET `/api/posts/{post_id}/comments`
+某文章的全部评论，按 `id` 升序。
+
+**404** 文章不存在。**200** `Comment[]`。
+
+---
+
+### POST `/api/posts/{post_id}/comments`
+发表评论。**需登录**。
+
+**Body**
 ```json
 { "content": "写得不错！" }
 ```
+内容去空格后为空 → `400`；文章不存在 → `404`。
 
-**响应** `201`：`Comment`
-
-**错误**
-
-| 状态码 | 场景 |
-|---|---|
-| 400 | 内容为空 |
-| 404 | 文章不存在 |
+**201** 返回 `Comment`。
 
 ---
 
-### 3. 删除评论
+### DELETE `/api/comments/{comment_id}`
+删除评论。**需登录**。允许：评论作者 / 文章作者 / admin。
 
-```
-DELETE /api/comments/{comment_id}
-```
-
-**鉴权**：必须（评论作者 / 文章作者 / admin）  
-**响应**：`204`
-
-**错误**
-
-| 状态码 | 场景 |
-|---|---|
-| 403 | 无权删除 |
-| 404 | 评论不存在 |
+**204**；`404` 不存在；`403` 无权。
 
 ---
 
-## 图片上传
+## 图片池 Uploads
 
-### 通用图片上传
+图片池用于文章封面、正文图片、用户头像等。文件只增不删，服务端每天 **04:00（本地时区）** 清理 **mtime > 24h 且引用数为 0** 的文件。
 
-```
-POST /api/uploads/images
-Content-Type: multipart/form-data
-```
+### POST `/api/uploads/images`
+上传图片。**需登录**。`multipart/form-data`，字段名 `file`。
 
-**字段**：`file`  
-**鉴权**：必须  
-**响应**
+限制：
+- MIME：`image/png`、`image/jpeg`、`image/webp`、`image/gif`
+- 大小 ≤ 2MB
+- 文件内容格式必须与 MIME 一致（魔数校验）
+- 非 GIF 统一转 `WEBP`（quality=82），最大边 2048，保留透明通道
+- GIF 原样保存
 
+**200**
 ```json
-{ "url": "/static/posts/xxx.webp" }
+{ "url": "/static/pool/xxxxxxxx.webp" }
 ```
+**400** 类型/大小/格式不符。
 
-**约束（与假后端一致）**
+---
 
-| 项 | 值 |
-|---|---|
-| 允许 MIME | `image/png`、`image/jpeg`、`image/webp`、`image/gif` |
-| 最大体积 | 2 MB |
-| 最长边 | 超过 2048 等比缩小 |
-| 输出格式 | 统一 WebP（quality 82，GIF 除外） |
-| GIF | 原样保存，扩展名 `.gif` |
-| 内容校验 | 真实格式必须与 MIME 一致 |
+### GET `/api/uploads/images`
+列出图片池文件。**需登录**。
 
-**错误**
-
-| 状态码 | 场景 |
-|---|---|
-| 400 | 类型不支持 / 空文件 / 超过 2MB / 非有效图片 / 内容与类型不符 |
-
-### 静态资源
-
-```
-GET /static/**
-```
-
-由后端静态文件服务提供，目录结构：
-
-```
-uploads/
-├── avatars/    # 头像
-└── posts/      # 封面、正文图、通用图
+**Query**：`limit`（默认 60）
+**200** 按 mtime 倒序的 `PoolImage[]`：
+```json
+[{ "url": "/static/pool/a.webp", "filename": "a.webp", "size": 12345, "mtime": 1700000000.0 }]
 ```
 
 ---
 
-## 搜索
+## 搜索 Search
 
-```
-GET /api/search
-```
+### GET `/api/search`
+聚合搜索文章、系列、标签、用户。
 
-**Query 参数**
-
+**Query**
 | 参数 | 类型 | 默认 | 说明 |
 |---|---|---|---|
-| `q` | string | `""` | 搜索词 |
-| `type` | string | - | `post` \| `series` \| `tag` \| `user` |
-| `limit` | int | 8 | 返回条数上限 |
+| `q` | str | `""` | 关键字 |
+| `type` | str | - | 过滤：`post` / `series` / `tag` / `user` |
+| `limit` | int | 8 | 返回条数 |
 
 **行为**
+- `q` 为空：返回最近 5 篇文章（`matched: "recent"`）+ 前 5 个标签（`matched: "popular"`）。
+- `q` 非空：在文章标题/正文、系列介绍文/描述、标签名/slug、用户名中匹配。
+- 排序优先级：`post > series > tag > user`，同级按标题长度升序。
 
-- `q` 为空：返回最近 5 篇文章（`matched="recent"`）+ 前 5 个标签（`matched="popular"`），`post_filters={}`
-- `q` 非空：聚合匹配
-  - 文章：标题或内容命中 → `matched=title|content`
-  - 系列：介绍文标题/内容或 description 命中 → `matched=series`
-  - 标签：name 或 slug 命中 → `matched=tag`
-  - 用户：username 命中 → `matched=user`
-- 按 `post < series < tag < user` 排序，同类按标题长度升序
-- `type` 参数在排序前过滤
-- 返回 `post_filters={"q": q}`，供前端跳转 `/posts?q=...`
-
-**响应**：`SearchOut`
+**200**
+```json
+{
+  "items": [
+    {
+      "type": "post", "id": 1, "title": "Nuxt 从零开始",
+      "subtitle": "作者 alice", "url": "/posts/1", "matched": "title"
+    }
+  ],
+  "post_filters": { "q": "nuxt" }
+}
+```
 
 ---
 
-## 友链
+## 友链 Friends
 
-### 1. 友链列表（公开）
+### GET `/api/friends`
+公开友链列表，仅返回 `visible=true`，按 `order, id` 升序。**无需登录**。
 
-```
-GET /api/friends
-```
-
-**响应**：`FriendLink[]`（仅 `visible=true`，按 `order, id` 升序）
+**200** `FriendLink[]`。
 
 ---
 
-### 2. 创建友链
+### POST `/api/friends`
+新建友链。**需登录且 admin**，否则 `403`。
 
-```
-POST /api/friends
-```
-
-**鉴权**：必须 admin  
-**请求体**
-
+**Body**
 ```json
 {
   "name": "Nuxt",
@@ -809,51 +475,150 @@ POST /api/friends
   "visible": true
 }
 ```
+校验：
+- `name`、`url` 非空
+- `theme_color` 必须匹配 `^#[0-9a-fA-F]{6}$`
+- `skin` ∈ `{minimal, neon, tilt}`
 
-**响应** `201`：`FriendLink`
-
-**校验**
-
-| 规则 | 说明 |
-|---|---|
-| `name`、`url` | 非空 |
-| `theme_color` | 必须匹配 `^#[0-9a-fA-F]{6}$` |
-| `skin` | `minimal` \| `neon` \| `tilt` |
-
-**错误**
-
-| 状态码 | 场景 |
-|---|---|
-| 400 | 校验失败 |
-| 403 | 非 admin |
+**201** 返回 `FriendLink`。
 
 ---
 
-### 3. 更新友链
+### PUT `/api/friends/{fid}`
+更新友链。**需登录且 admin**。Body 同创建，整体覆盖。
 
-```
-PUT /api/friends/{fid}
-```
-
-**鉴权**：必须 admin  
-**请求体**：同创建  
-**响应**：`FriendLink`
-
-**错误**：`403` / `404` / `400`
+**200** 返回 `FriendLink`；`404` 不存在。
 
 ---
 
-### 4. 删除友链
+### DELETE `/api/friends/{fid}`
+删除友链。**需登录且 admin**。**204**。
 
+---
+
+## RSS
+
+### GET `/rss.xml`
+RSS 2.0 订阅，最新 20 篇文章。
+
+- `Cache-Control: public, max-age=600`
+- 正文取 `content` 前 500 字符并转义
+- `pubDate` 为 RFC 822 格式
+
+---
+
+## 数据结构
+
+### User（登录/注册/me 返回，含 role）
+```ts
+{
+  id: number;
+  username: string;
+  role: "user" | "admin";
+  email: string | null;
+  avatar: string | null;
+  created_at: string;
+}
 ```
-DELETE /api/friends/{fid}
+
+### UserPublic（公开信息，无 role）
+```ts
+{
+  id: number;
+  username: string;
+  email: string | null;
+  avatar: string | null;
+  created_at: string;
+}
 ```
 
-**鉴权**：必须 admin  
-**响应**：`204`  
-**错误**：`403` / `404`
+### Tag
+```ts
+{ id: number; name: string; slug: string; post_count: number; }
+```
 
-> 真后端建议补 `GET /api/friends/all`（admin 看全部含隐藏）。
+### Series
+```ts
+{
+  id: number;
+  title: string;          // 来自介绍文 title，无介绍文时为 "（无标题系列）"
+  slug: string;
+  description: string;
+  cover: string | null;   // 来自介绍文 cover
+  user_id: number;
+  intro_post_id: number | null;
+  author: UserPublic | null;
+  post_count: number;
+  created_at: string;
+  updated_at: string;
+}
+```
+
+### Post
+```ts
+{
+  id: number;
+  title: string;
+  content: string;        // Markdown
+  user_id: number;
+  series_id: number | null;
+  series_order: number | null;
+  series: Series | null;
+  tags: Tag[];
+  featured: boolean;
+  author: UserPublic | null;
+  created_at: string;
+  updated_at: string;
+  cover: string | null;
+}
+```
+
+### Comment
+```ts
+{
+  id: number;
+  post_id: number;
+  user_id: number;
+  content: string;
+  author: UserPublic | null;
+  created_at: string;
+}
+```
+
+### FriendLink
+```ts
+{
+  id: number;
+  name: string;
+  url: string;
+  description: string;
+  avatar: string | null;
+  theme_color: string;    // #rrggbb
+  skin: "minimal" | "neon" | "tilt";
+  tags: string[];
+  order: number;
+  visible: boolean;
+  created_at: string;
+}
+```
+
+### PoolImage
+```ts
+{ url: string; filename: string; size: number; mtime: number; }
+```
+
+### SearchItem / SearchOut
+```ts
+type SearchItem = {
+  type: "post" | "series" | "tag" | "user";
+  id: number;
+  title: string;
+  subtitle: string;
+  url: string;
+  matched: string;        // "title" | "content" | "recent" | "popular" | ...
+};
+type SearchOut = { items: SearchItem[]; post_filters: Record<string, unknown> };
+```
 
 ---
 
@@ -861,71 +626,77 @@ DELETE /api/friends/{fid}
 
 | 状态码 | 含义 | 典型场景 |
 |---|---|---|
-| 400 | 请求参数错误 | 校验失败、文件非法、系列不存在 |
-| 401 | 未登录 / token 失效 | 缺少或无效 Bearer |
-| 403 | 无权限 | 非作者、非 admin、设精选 |
-| 404 | 资源不存在 | 文章/系列/标签/用户/评论/友链 |
-| 409 | 冲突 | 用户名、slug、标签重复；介绍文被引用 |
-| 204 | 成功无内容 | 所有 DELETE、logout |
+| 400 | 参数错误 | 标题/内容为空、图片格式不符、密码过短、theme_color 非法 |
+| 401 | 未登录 / token 失效 | 缺 Bearer、token 不在内存 |
+| 403 | 无权限 | 非 admin 设 featured、改他人文章、非 admin 管友链 |
+| 404 | 资源不存在 | 文章/标签/系列/评论/用户不存在 |
+| 409 | 冲突 | 用户名/slug/标签重名、删除系列介绍文 |
+| 204 | 成功无内容 | 删除类接口 |
 
-错误响应体建议统一：
-
+错误响应体为 FastAPI 默认：
 ```json
-{ "detail": "错误描述" }
+{ "detail": "错误说明" }
 ```
-
-（假后端用 FastAPI 默认格式，真后端可沿用）
 
 ---
 
-## 实现注意事项
+## 业务规则与坑点
 
-### 假后端的已知 bug（勿照抄）
+1. **系列标题/封面来自介绍文**：没有独立字段。改介绍文标题或封面会同步改变系列展示。删除介绍文前必须先更换（否则 409）。
+2. **`GET /api/series/{slug}` 用 slug**，而 `PUT/DELETE /api/series/{id}` 用 id，别混。
+3. **`?tag=` 参数用 slug**，不是 tag id；slug 不存在返回 404。
+4. **三态字段**：`PUT /api/user/me` 的 `avatar`、`PUT /api/posts/{id}` 的 `cover` 使用 `model_fields_set` 判断——
+   - 不传字段 = 不改
+   - 传 `null` = 解绑/清空
+   - 传值 = 更新
+5. **头像必须是图片池 URL**：`/static/pool/` 前缀，否则 400。
+6. **精选仅 admin**：`featured=true` 时非 admin 会 403（更新时同）。
+7. **评论删除权限**：评论作者、文章作者、admin 三者任一即可。
+8. **图片池清理**：每天 04:00 删除 mtime > 24h 且无引用的文件。引用检查覆盖 `user.avatar`、`post.cover`、`post.content` 中的 URL 子串。**刚上传但未发布/未引用的图 24h 后会被清理**，前端如需长期保存请及时引用。
+9. **上传即转 WEBP**（GIF 除外），前端回显 URL 后缀会是 `.webp`。
+10. **token 永不过期**（内存存储），服务重启后需重新登录。
+11. **种子数据**：`alice / alice123`（admin）、`bob / bob123`；种子文章、系列 `nuxt-from-scratch`、3 条友链、2 条评论。
+12. **搜索空 q** 返回 recent + popular，适合首页搜索框下拉默认数据。
+13. **列表接口统一分页结构** `{data,total,page,limit}`，前端可直接按此解构。
+14. **`/openapi.json`** 可用于自动生成 TS 类型。
 
-1. `update_post` 中 `touch_series(body_series_id)` —— `body_series_id` 未定义，应为 `body.series_id`
-2. `make_series` 写入 `"update_at"`，但 `series_out` 读取 `"updated_at"`，靠 `.get` 兜底
-3. 顶部重复声明 `posts: dict[int, dict]`
-4. `Series.title` 完全派生自 intro 文章，系列无法独立命名 —— 真后端可考虑给 Series 加独立 `title` 字段
-5. 创建系列时 `intro_post_id` 必填，但更新时可空 —— 语义不一致
+---
 
-### 真后端建议
+## 附：完整接口一览
 
-| 项 | 建议 |
-|---|---|
-| 密码 | bcrypt / argon2 哈希，禁止明文 |
-| Token | JWT（含 `sub`、`exp`）或 DB 存 token 表，支持过期与撤销 |
-| 数据库 | Users / Posts / Series / Tags / PostTags / Comments / Friends 七张表 |
-| 多对多 | `post_tags(post_id, tag_id)` 联合主键 |
-| 系列 | 建议加独立 `title`，`intro_post_id` 可空 |
-| 评论 | 建议加 `parent_id` 支持楼中楼、分页 |
-| 搜索 | Postgres `tsvector` / SQLite FTS5 / Meilisearch，按相关度排序 |
-| 图片 | 对象存储（S3/OSS）+ CDN，或本地 + Pillow 转码 |
-| 删除文章 | 级联删除评论、post_tags；检查 intro 引用 |
-| 删除系列 | 事务内把 `posts.series_id` 置 null |
-| 静态资源 | `/static/*` 加缓存头（`Cache-Control: max-age=31536000, immutable`） |
-| CORS | 生产环境限定白名单，勿用 `*` |
-| 分页 | 大表建议加 `total` 缓存或 cursor 分页 |
-| 友链 | `visible` 公开过滤，admin 另开 `/all` |
-| 日志 | 记录写操作审计（谁改了哪篇文章） |
-| 限流 | 登录、注册、评论、上传接口加 rate limit |
-
-### 建议补的接口（假后端没有）
-
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| `GET` | `/api/posts/{id}/adjacent` | 系列内上一篇/下一篇 |
-| `GET` | `/api/archives` | 按年月归档 |
-| `PUT` / `DELETE` | `/api/tags/{id}` | 标签改删（admin） |
-| `PUT` | `/api/comments/{id}` | 编辑评论 |
-| `PATCH` | `/api/series/{id}/reorder` | 批量调整 `series_order` |
-| `POST` | `/api/user/refresh` | 刷新 token |
-| `GET` | `/api/friends/all` | admin 看全部友链 |
-| `GET` | `/api/users` | 用户列表（admin） |
-
-### 前端契约要点
-
-- 系列标题永远来自 intro 文章标题，前端不要假设系列有独立 title
-- 图片 URL 是相对路径 `/static/...`，前端拼 baseURL
-- `401` 触发重新登录，`403` 提示无权限，`409` 提示冲突
-- `featured` 只有 admin 能设，普通用户提交会被 403
-- 删除系列后文章变成"独立文章"（`series_id=null`）
+| 方法 | 路径 | 鉴权 | 说明 |
+|---|---|---|---|
+| POST | `/api/user/login` | - | 登录 |
+| POST | `/api/user/register` | - | 注册 |
+| POST | `/api/user/logout` | 可选 | 登出 |
+| GET | `/api/user/me` | ✅ | 当前用户 |
+| PUT | `/api/user/me` | ✅ | 更新资料 |
+| GET | `/api/user/{user_id}` | - | 用户公开信息 |
+| GET | `/api/posts` | - | 文章列表 |
+| GET | `/api/posts/{id}` | - | 文章详情 |
+| GET | `/api/posts/{id}/adjacent` | - | 系列前后篇 |
+| POST | `/api/posts` | ✅ | 新建文章 |
+| PUT | `/api/posts/{id}` | ✅ | 更新文章 |
+| DELETE | `/api/posts/{id}` | ✅ | 删除文章 |
+| GET | `/api/tags` | - | 标签列表 |
+| POST | `/api/tags` | ✅ | 新建标签 |
+| PUT | `/api/tags/{id}` | ✅ | 重命名标签 |
+| DELETE | `/api/tags/{id}` | ✅ | 删除标签 |
+| GET | `/api/series` | - | 系列列表 |
+| GET | `/api/series/{slug}` | - | 系列详情（按 slug） |
+| POST | `/api/series` | ✅ | 新建系列 |
+| PUT | `/api/series/{id}` | ✅ | 更新系列 |
+| DELETE | `/api/series/{id}` | ✅ | 删除系列 |
+| GET | `/api/posts/{id}/comments` | - | 评论列表 |
+| POST | `/api/posts/{id}/comments` | ✅ | 发表评论 |
+| DELETE | `/api/comments/{id}` | ✅ | 删除评论 |
+| POST | `/api/uploads/images` | ✅ | 上传图片 |
+| GET | `/api/uploads/images` | ✅ | 图片池列表 |
+| GET | `/api/search` | - | 聚合搜索 |
+| GET | `/api/friends` | - | 友链列表 |
+| POST | `/api/friends` | ✅ admin | 新建友链 |
+| PUT | `/api/friends/{id}` | ✅ admin | 更新友链 |
+| DELETE | `/api/friends/{id}` | ✅ admin | 删除友链 |
+| GET | `/rss.xml` | - | RSS 订阅 |
+| GET | `/static/pool/{filename}` | - | 图片静态访问 |
+```

@@ -12,13 +12,15 @@ const { tags, load: loadTax } = useTaxonomy()
 const api = useApi()
 
 // ---------- URL query 派生状态 ----------
-const page = ref(Number(route.query.page) || 1)
-const limit = ref(Number(route.query.limit) || 10)
+const page = computed(() => Number(route.query.page) || 1)
+const limit = computed(() => Number(route.query.limit) || 10)
 const tag = computed(() => (route.query.tag as string) || '')
 const userId = computed(() => (route.query.user_id ? Number(route.query.user_id) : undefined))
 const q = computed(() => (route.query.q as string) || '')
 const sort = computed(() => (route.query.sort as string) || 'created_at')
-const order = computed(() => (route.query.order as string) || 'desc')
+const order = computed<'asc' | 'desc'>(() => {
+  return route.query.order === 'asc' ? 'asc' : 'desc'
+})
 const year = computed(() => (route.query.year ? Number(route.query.year) : undefined))
 const view = computed<View>(() => {
   const v = route.query.view as string
@@ -31,7 +33,6 @@ const items = ref<Item[]>([])
 const total = ref(0)
 const loading = ref(false)
 const errorMsg = ref('')
-const { totalPages, go } = usePagination(page, limit, total)
 const showSeriesDialog = ref(false)
 const showEditor = ref(false)
 
@@ -42,14 +43,14 @@ let searchTimer: ReturnType<typeof setTimeout> | null = null
 watch(searchInput, (v) => {
   if (searchTimer) clearTimeout(searchTimer)
   searchTimer = setTimeout(() => {
-    updateQuery({ q: v.trim() || undefined, page: '1' })
+    updateQuery({ q: v.trim() || undefined, page: undefined })
   }, 300)
 })
 watch(q, (v) => { if (v !== searchInput.value) searchInput.value = v })
 
-// ---------- URL 更新工具 ----------
+// ---------- URL 更新工具（唯一入口） ----------
 function updateQuery(patch: Record<string, any>) {
-  const next = { ...route.query, ...patch }
+  const next: Record<string, any> = { ...route.query, ...patch }
   for (const k of Object.keys(next)) {
     const val = next[k]
     if (val === undefined || val === null || val === '') delete next[k]
@@ -58,32 +59,32 @@ function updateQuery(patch: Record<string, any>) {
 }
 
 function setView(v: View) {
-  updateQuery({ view: v === 'series' ? undefined : v, page: '1' })
+  updateQuery({ view: v === 'series' ? undefined : v, page: undefined })
 }
 function setTag(slug: string) {
-  updateQuery({ tag: tag.value === slug ? undefined : slug, page: '1' })
+  updateQuery({ tag: tag.value === slug ? undefined : slug, page: undefined })
 }
 function clearSearch() {
   searchInput.value = ''
-  updateQuery({ q: undefined, page: '1' })
+  updateQuery({ q: undefined, page: undefined })
 }
 function clearUserFilter() {
-  updateQuery({ user_id: undefined, page: '1' })
+  updateQuery({ user_id: undefined, page: undefined })
 }
 function changePage(p: number) {
-  go(p)
-  updateQuery({ page: String(page.value) })
+  updateQuery({ page: p > 1 ? String(p) : undefined })
 }
 function onSortChange(e: Event) {
   const [s, o] = (e.target as HTMLSelectElement).value.split(':')
-  updateQuery({ sort: s, order: o, page: '1' })
+  updateQuery({ sort: s === 'created_at' ? undefined : s, order: o === 'desc' ? undefined : o, page: undefined })
 }
 function onLimitChange(e: Event) {
-  updateQuery({ limit: (e.target as HTMLSelectElement).value, page: '1' })
+  const v = Number((e.target as HTMLSelectElement).value)
+  updateQuery({ limit: v === 10 ? undefined : String(v), page: undefined })
 }
 function onYearChange(e: Event) {
   const v = (e.target as HTMLInputElement).value
-  updateQuery({ year: v || undefined, page: '1' })
+  updateQuery({ year: v || undefined, page: undefined })
 }
 
 // ---------- 数据获取 ----------
@@ -91,34 +92,45 @@ async function fetchAll() {
   loading.value = true
   errorMsg.value = ''
   total.value = 0
+  items.value = []
 
   const isSearching = !!q.value
   const isSeriesOnly = view.value === 'series' && !isSearching && !tag.value && !userId.value
 
-  // 1) 系列卡片：仅"系列"视图 或 "全部"视图 显示
-  let seriesItems: Item[] = []
-  if (isSeriesOnly || view.value === 'all') {
-    try {
-      const seriesRes = await api.get<Series[]>('/api/series', {
-        q: q.value || undefined,
-        sort: sort.value === 'title' ? 'title' : (sort.value === 'created_at' ? 'created_at' : 'updated_at'),
-        order: order.value,
-      }, { silent: true })
-      seriesItems = seriesRes.map(series => ({ kind: 'series', series }))
-    } catch { seriesItems = [] }
-  }
-
-  // 2) 系列视图：只显示系列卡片，不分页
+  // 系列视图：只拉系列（分页）
   if (isSeriesOnly) {
-    items.value = seriesItems
-    loading.value = false
+    try {
+      const res = await api.get<{ data: Series[]; total: number; page: number; limit: number }>(
+        '/api/series',
+        { page: page.value, limit: limit.value, q: q.value || undefined, sort: sort.value, order: order.value },
+        { silent: true },
+      )
+      items.value = res.data.map(series => ({ kind: 'series', series }))
+      total.value = res.total
+    } catch (e: any) {
+      errorMsg.value = e?.message ?? '加载失败'
+    } finally {
+      loading.value = false
+    }
     return
   }
 
-  // 3) 文章：系列视图带搜索/标签时也走文章；全部/散篇视图走文章
-  let postItems: Item[] = []
+  // 其他视图：拉文章（分页）
+  let seriesItems: Item[] = []
+  if (view.value === 'all' && !isSearching && !tag.value && !userId.value) {
+    // "全部"视图：系列卡片置顶（不分页，取前 20）
+    try {
+      const seriesRes = await api.get<{ data: Series[] }>(
+        '/api/series',
+        { page: 1, limit: 20, sort: 'updated_at', order: 'desc' },
+        { silent: true },
+      )
+      seriesItems = seriesRes.data.map(series => ({ kind: 'series', series }))
+    } catch { seriesItems = [] }
+  }
+
   try {
-    const postsRes = await list({
+    const res = await list({
       page: page.value,
       limit: limit.value,
       user_id: userId.value,
@@ -129,26 +141,26 @@ async function fetchAll() {
       order: order.value,
       standalone: view.value === 'standalone' ? true : undefined,
     })
-    postItems = postsRes.data.map(post => ({ kind: 'post', post }))
-    total.value = postsRes.total
+    items.value = [
+      ...seriesItems,
+      ...res.data.map((post): Item => ({ kind: 'post', post })),
+    ]
+    total.value = res.total
   } catch (e: any) {
     errorMsg.value = e?.message ?? '加载失败'
+  } finally {
+    loading.value = false
   }
-
-  items.value = [...seriesItems, ...postItems]
-  loading.value = false
 }
 
+// 首次加载：taxonomy + 列表
 onMounted(async () => {
   try { await loadTax() } catch {}
   await fetchAll()
 })
 
-watch(() => route.query, async () => {
-  page.value = Number(route.query.page) || 1
-  limit.value = Number(route.query.limit) || 10
-  await fetchAll()
-})
+// URL 变化时重新拉（唯一触发点）
+watch(() => route.query, () => fetchAll())
 
 // ---------- 创建后的回调 ----------
 function onSeriesCreated(s: Series) {
@@ -160,11 +172,8 @@ async function onSaved(_p: Post) {
   await fetchAll()
 }
 
-// 工具条显隐：系列视图且无搜索/标签时，排序/分页无意义
-const showToolbarFilters = computed(() =>
-  // !(view.value === 'series' && !q.value && !tag.value && !userId.value),
-  true
-)
+// 工具条显隐：系列视图且无搜索/标签/用户时，排序/每页/年份对"系列卡片"意义有限（但排序仍有意义，保留）
+const showToolbarFilters = computed(() => true)
 </script>
 
 <template>
@@ -215,7 +224,6 @@ const showToolbarFilters = computed(() =>
 
     <!-- 视图切换 + 工具条 -->
     <div class="flex flex-wrap items-center gap-3 text-sm">
-      <!-- 视图切换 -->
       <div class="flex rounded border border-border overflow-hidden">
         <button
           class="px-3 py-1"
@@ -235,7 +243,6 @@ const showToolbarFilters = computed(() =>
       </div>
 
       <template v-if="showToolbarFilters">
-      <!-- <template> -->
         <!-- 排序 -->
         <label class="flex items-center gap-1.5">
           <span class="text-faint">排序</span>
@@ -266,8 +273,8 @@ const showToolbarFilters = computed(() =>
           </select>
         </label>
 
-        <!-- 年份 -->
-        <label class="flex items-center gap-1.5">
+        <!-- 年份：系列视图无意义，隐藏 -->
+        <label v-if="view !== 'series'" class="flex items-center gap-1.5">
           <span class="text-faint">年份</span>
           <input
             type="number"
@@ -287,10 +294,7 @@ const showToolbarFilters = computed(() =>
         class="px-2 py-0.5 rounded text-xs border border-border"
         :class="tag === t.slug ? 'bg-primary/10 text-primary border-primary/40' : 'text-muted'"
         @click="setTag(t.slug)"
-      ># {{ t.name }}<span 
-          v-if="t.post_count" class="text-faint ml-1">({{ t.post_count }})
-        </span>
-      </button>
+      ># {{ t.name }}<span v-if="t.post_count" class="text-faint ml-1">({{ t.post_count }})</span></button>
     </div>
 
     <PostEditor v-if="showEditor" :post="null" @saved="onSaved" @cancel="showEditor = false" />
@@ -315,11 +319,11 @@ const showToolbarFilters = computed(() =>
       />
     </div>
 
-    <!-- 分页：系列视图且无筛选时不显示 -->
     <Pagination
-      v-if="total > 0"
+      v-if="total > limit"
       :page="page"
-      :total-pages="totalPages"
+      :total="total"
+      :limit="limit"
       @change="changePage"
     />
 

@@ -59,7 +59,7 @@ export interface Comment {
   created_at?: string
 }
 
-export interface Paginated<T> {
+export interface PageOut<T> {
   data: T[]
   total: number
   page: number

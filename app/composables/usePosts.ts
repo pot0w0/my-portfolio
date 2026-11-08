@@ -1,10 +1,10 @@
-import type { Paginated, Post, PostListQuery, PostPayload } from '~/types/api'
+import type { PageOut, Post, PostListQuery, PostPayload } from '~/types/api'
 
 export function usePosts() {
   const api = useApi()
 
-  function list(query: PostListQuery = {}) {
-    return api.get<Paginated<Post>>('/api/posts', query as any)
+  function list(query: ListQuery = {}) {
+    return api.get<PageOut<Post>>('/api/posts', query)
   }
   function get(id: number | string, opts?: { silent?: boolean }) {
     return api.get<Post>(`/api/posts/${id}`, undefined, opts)

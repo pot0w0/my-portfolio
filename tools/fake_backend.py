@@ -14,14 +14,17 @@ import threading
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Optional, Generic, TypeVar
 
 from fastapi import FastAPI, Depends, HTTPException, Header, Query, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
 from pydantic import BaseModel
+from fastapi import Response
+from xml.sax.saxutils import escape
 
+T = TypeVar("T")
 # ---------- 数据模型 ----------
 class User(BaseModel):
     id: int
@@ -104,8 +107,8 @@ class AuthOut(BaseModel):
     token: str
     user: User
 
-class PageOut(BaseModel):
-    data: list[Post]
+class PageOut(BaseModel, Generic[T]):
+    data: list[T]
     total: int
     page: int
     limit: int
@@ -204,6 +207,10 @@ _next_cid = 1
 _next_tag = 1
 _next_sid = 1
 
+SITE_TITLE = "My Portfolio"
+SITE_DESC = "写代码的人，偶尔写字。"
+SITE_URL = "http://localhost:3001"   # 前端地址（真部署换成域名）
+
 UPLOAD_ROOT = "uploads"
 POOL_DIR = os.path.join(UPLOAD_ROOT, "pool")
 os.makedirs(POOL_DIR, exist_ok=True)
@@ -223,10 +230,6 @@ PIL_FORMAT_MAP = {
     "image/gif": "GIF",
 }
 
-try:
-    RESAMPLE = Image.Resampling.LANCZOS
-except AttributeError:
-    RESAMPLE = Image.LANCZOS
 
 # ---------- 构造辅助 ----------
 def make_user(username: str, password: str, email: str | None = None, role: str = "user") -> dict:
@@ -459,6 +462,11 @@ def cleanup_loop():
         except Exception as e:
             print("cleanup failed:", e)
 
+def _rfc822(iso: str) -> str:
+    """ISO 时间 → RSS 要求的 RFC 822"""
+    dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+    return dt.strftime("%a, %d %b %Y %H:%M:%S +0000")
+
 threading.Thread(target=cleanup_loop, daemon=True).start()
 
 # ---------- 友链 ----------
@@ -538,6 +546,50 @@ app.add_middleware(
     allow_methods=["*"], allow_headers=["*"],
 )
 
+@app.get("/rss.xml")
+def rss_feed(limit: int = 20):
+    # 取最新文章（不含系列介绍文？看你——介绍文也是文章，可含）
+    items = sorted(posts.values(), key=lambda p: p["created_at"], reverse=True)[:limit]
+
+    parts = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">',
+        '<channel>',
+        f'<title>{escape(SITE_TITLE)}</title>',
+        f'<link>{SITE_URL}</link>',
+        f'<description>{escape(SITE_DESC)}</description>',
+        '<language>zh-CN</language>',
+        f'<atom:link href="{SITE_URL}/rss.xml" rel="self" type="application/rss+xml"/>',
+    ]
+
+    for p in items:
+        author = users.get(p["user_id"]) or {}
+        url = f"{SITE_URL}/posts/{p['id']}"
+        # 正文：Markdown 原样放（阅读器自己渲染），或转纯文本摘要
+        desc = escape(p["content"][:500])
+        parts.append("<item>")
+        parts.append(f"<title>{escape(p['title'])}</title>")
+        parts.append(f"<link>{url}</link>")
+        parts.append(f"<guid isPermaLink=\"true\">{url}</guid>")
+        parts.append(f"<pubDate>{_rfc822(p['created_at'])}</pubDate>")
+        parts.append(f"<author>{escape(author.get('username',''))}</author>")
+        parts.append(f"<description>{desc}</description>")
+        parts.append("</item>")
+
+    parts.append("</channel>")
+    parts.append("</rss>")
+
+    return Response(
+        content="\n".join(parts),
+        media_type="application/rss+xml; charset=utf-8",
+        headers={"Cache-Control": "public, max-age=600"},   # 10 分钟缓存
+    )
+
+try:
+    RESAMPLE = Image.Resampling.LANCZOS
+except AttributeError:
+    RESAMPLE = Image.LANCZOS
+
 # ===== 用户 =====
 @app.get("/api/user/me", response_model=User)
 def user_me(me: dict = Depends(get_me)):
@@ -599,9 +651,32 @@ def update_me(body: ProfileIn, me: dict = Depends(get_me)):
     return self_user(me)
 
 # ===== 标签 =====
-@app.get("/api/tags", response_model=list[Tag])
-def list_tags():
-    return [tag_out(t) for t in tags.values()]
+@app.get("/api/tags", response_model=PageOut[Tag])
+def list_tags(
+    page: int = 1, limit: int = 100,
+    q: Optional[str] = None,
+    sort: str = "name",
+    order: str = "asc",
+):
+    items = list(tags.values())
+
+    if q:
+        kw = q.strip().lower()
+        if kw:
+            items = [t for t in items if kw in t["name"].lower() or kw in t["slug"].lower()]
+
+    reverse = order == "desc"
+    if sort == "post_count":
+        items.sort(key=lambda t: tag_post_count(t["id"]), reverse=reverse)
+    else:  # name
+        items.sort(key=lambda t: t["name"].lower(), reverse=reverse)
+
+    total = len(items)
+    start = (page - 1) * limit
+    return PageOut[Tag](
+        data=[tag_out(t) for t in items[start:start+limit]],
+        total=total, page=page, limit=limit,
+    )
 
 @app.post("/api/tags", response_model=Tag, status_code=201)
 def create_tag(body: TagIn, me: dict = Depends(get_me)):
@@ -638,8 +713,9 @@ def delete_tag(tag_id: int, me: dict = Depends(get_me)):
     return None
 
 # ===== 系列 =====
-@app.get("/api/series", response_model=list[Series])
+@app.get("/api/series", response_model=PageOut[Series])
 def list_series(
+    page: int = 1, limit: int = 20,
     q: Optional[str] = None,
     sort: str = "updated_at",
     order: str = "desc",
@@ -667,7 +743,12 @@ def list_series(
     else:
         items.sort(key=lambda s: s.get("updated_at", s["created_at"]), reverse=reverse)
 
-    return [series_out(s) for s in items]
+    total = len(items)
+    start = (page - 1) * limit
+    return PageOut[Series](
+        data=[series_out(s) for s in items[start:start+limit]],
+        total=total, page=page, limit=limit,
+    )
 
 @app.get("/api/series/{slug}")
 def get_series(slug: str):
@@ -737,7 +818,7 @@ def delete_series(series_id: int, me: dict = Depends(get_me)):
     return None
 
 # ===== 博客 =====
-@app.get("/api/posts", response_model=PageOut)
+@app.get("/api/posts", response_model=PageOut[Post])
 def list_posts(
     page: int = 1, limit: int = 10,
     user_id: Optional[int] = None,
@@ -782,8 +863,10 @@ def list_posts(
 
     total = len(items)
     start = (page - 1) * limit
-    return PageOut(data=[post_out(p) for p in items[start:start+limit]],
-                   total=total, page=page, limit=limit)
+    return PageOut[Post](
+        data=[post_out(p) for p in items[start:start+limit]],
+        total=total, page=page, limit=limit,
+    )
 
 @app.get("/api/posts/{post_id}", response_model=Post)
 def get_post(post_id: int):
@@ -894,10 +977,10 @@ async def upload_image(file: UploadFile = File(...), me: dict = Depends(get_me))
     url = save_image(data, file.content_type)
     return PostImageOut(url=url)
 
-@app.get("/api/uploads/images", response_model=list[PoolImage])
-def list_pool_images(limit: int = 60, me: dict = Depends(get_me)):
+@app.get("/api/uploads/images", response_model=PageOut[PoolImage])
+def list_pool_images(page: int = 1, limit: int = 60, me: dict = Depends(get_me)):
     if not os.path.isdir(POOL_DIR):
-        return []
+        return PageOut[PoolImage](data=[], total=0, page=page, limit=limit)
     files = []
     for name in os.listdir(POOL_DIR):
         path = os.path.join(POOL_DIR, name)
@@ -911,16 +994,34 @@ def list_pool_images(limit: int = 60, me: dict = Depends(get_me)):
             mtime=st.st_mtime,
         ))
     files.sort(key=lambda f: f.mtime, reverse=True)
-    return files[:limit]
+    total = len(files)
+    start = (page - 1) * limit
+    return PageOut[PoolImage](
+        data=files[start:start+limit],
+        total=total, page=page, limit=limit,
+    )
 
 # ===== 评论 =====
-@app.get("/api/posts/{post_id}/comments", response_model=list[Comment])
-def list_comments(post_id: int):
+@app.get("/api/posts/{post_id}/comments", response_model=PageOut[Comment])
+def list_comments(
+    post_id: int,
+    page: int = 1, limit: int = 100,
+    sort: str = "created_at",
+    order: str = "asc",
+):
     if post_id not in posts:
         raise HTTPException(404, "文章不存在")
     items = [c for c in comments.values() if c["post_id"] == post_id]
-    items.sort(key=lambda c: c["id"])
-    return [comment_out(c) for c in items]
+
+    reverse = order == "desc"
+    items.sort(key=lambda c: c["created_at"], reverse=reverse)
+
+    total = len(items)
+    start = (page - 1) * limit
+    return PageOut[Comment](
+        data=[comment_out(c) for c in items[start:start+limit]],
+        total=total, page=page, limit=limit,
+    )
 
 @app.post("/api/posts/{post_id}/comments", response_model=Comment, status_code=201)
 def create_comment(post_id: int, body: CommentIn, me: dict = Depends(get_me)):
@@ -1012,11 +1113,16 @@ def search(q: str = "", type: Optional[str] = None, limit: int = 8):
     return SearchOut(items=items[:limit], post_filters={"q": q})
 
 # ===== 友链 =====
-@app.get("/api/friends", response_model=list[FriendLink])
-def list_friends():
+@app.get("/api/friends", response_model=PageOut[FriendLink])
+def list_friends(page: int = 1, limit: int = 100):
     items = [f for f in friends.values() if f["visible"]]
     items.sort(key=lambda f: (f["order"], f["id"]))
-    return [friend_out(f) for f in items]
+    total = len(items)
+    start = (page - 1) * limit
+    return PageOut[FriendLink](
+        data=[friend_out(f) for f in items[start:start+limit]],
+        total=total, page=page, limit=limit,
+    )
 
 def _validate_friend(body: FriendLinkIn):
     if not body.name.strip() or not body.url.strip():

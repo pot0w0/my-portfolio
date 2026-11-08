@@ -150,7 +150,7 @@ onMounted(async () => {
       <h2 class="text-sm font-medium text-faint uppercase tracking-wider">联系</h2>
       <div class="flex justify-center gap-4 text-sm">
         <a href="mailto:you@example.com" class="text-primary hover:underline">邮箱</a>
-        <a href="https://github.com/yourname" target="_blank" rel="noopener" class="text-primary hover:underline">GitHub</a>
+        <a href="https://github.com/pot0w0" target="_blank" rel="noopener" class="text-primary hover:underline">GitHub</a>
         <a href="/rss.xml" class="text-primary hover:underline">RSS</a>
       </div>
     </section>

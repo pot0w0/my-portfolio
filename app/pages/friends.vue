@@ -2,16 +2,11 @@
 import type { FriendLink } from '~/types/api'
 
 const api = useApi()
-const friends = ref<FriendLink[]>([])
-const loading = ref(true)
-
-onMounted(async () => {
-  try {
-    friends.value = await api.get<FriendLink[]>('/api/friends')
-  } catch {} finally {
-    loading.value = false
-  }
-})
+const { query, data: friends, total, loading, load, update } = useList(
+  (q) => api.get<PageOut<FriendLink>>('/api/friends', q),
+  { limit: 100 },
+)
+onMounted(() => load())
 </script>
 
 <template>

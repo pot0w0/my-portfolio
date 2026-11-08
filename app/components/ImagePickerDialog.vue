@@ -15,8 +15,10 @@ const api = useApi()
 const { uploadImage } = useUpload()
 const mediaUrl = useMediaUrl()
 
-const images = ref<PoolImage[]>([])
-const loading = ref(false)
+const { query, data: images, total, loading, load, update } = useList(
+  (q) => api.get<PageOut<PoolImage>>('/api/uploads/images', q, { silent: true }),
+  { limit: 60 },
+)
 const uploading = ref(false)
 const error = ref('')
 
@@ -34,9 +36,7 @@ async function fetchImages() {
   }
 }
 
-watch(() => props.open, (v) => {
-  if (v) fetchImages()
-})
+watch(() => props.open, (v) => { if (v) load() })
 
 function pick(url: string) {
   emit('picked', url)

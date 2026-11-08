@@ -8,7 +8,8 @@ export function useTaxonomy() {
   async function load(force = false) {
     if (loaded.value && !force) return
     try {
-      tags.value = await api.get<Tag[]>('/api/tags', undefined, { silent: true })
+      const res = await api.get<PageOut<Tag>>('/api/tags', { limit: 200 }, { silent: true })
+      tags.value = res.data
       loaded.value = true
     } catch {}
   }
