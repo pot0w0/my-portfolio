@@ -4,7 +4,7 @@ import type { PageOut, Post, Series, User } from '~/types/api'
 const api = useApi()
 const { list } = usePosts()
 const { isLoggedIn } = useAuth()
-const mediaUrl = useMediaUrl()
+const avatarUrl = useAvatarUrl()
 
 const featured = ref<Post[]>([])
 const latest = ref<Post[]>([])
@@ -39,17 +39,10 @@ onMounted(async () => {
     <section class="text-center py-10 md:py-16">
       <div class="flex justify-center mb-6">
         <img
-          v-if="owner?.avatar"
-          :src="mediaUrl(owner.avatar)"
+          :src="avatarUrl(owner?.avatar)"
           class="w-24 h-24 rounded-full object-cover border-2 border-border"
           alt=""
         />
-        <div
-          v-else
-          class="w-24 h-24 rounded-full bg-surface-2 flex items-center justify-center text-3xl font-bold text-faint border-2 border-border"
-        >
-          {{ owner?.username?.[0]?.toUpperCase() || 'A' }}
-        </div>
       </div>
 
       <h1 class="text-4xl md:text-5xl font-bold mb-3">

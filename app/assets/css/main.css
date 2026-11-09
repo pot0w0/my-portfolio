@@ -64,7 +64,7 @@ body::before {
   );
   will-change: transform;
   z-index: -2;
-  background-image: url('/bg.png');
+  background-image: var(--bg-image, url('/bg0.png'));
   background-size: cover;
   background-position: center;
   background-attachment: fixed;

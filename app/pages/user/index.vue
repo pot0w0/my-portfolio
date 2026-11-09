@@ -7,7 +7,7 @@ const api = useApi()
 const { user, logout } = useAuth()
 const { list } = usePosts()
 const router = useRouter()
-const mediaUrl = useMediaUrl()
+const avatarUrl = useAvatarUrl()
 
 const profile = ref<User | null>(user.value)
 const posts = ref<Post[]>([])
@@ -39,14 +39,10 @@ function onProfileUpdated(u: User) {
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-4">
           <img
-            v-if="profile.avatar"
-            :src="mediaUrl(profile.avatar)"
+            :src="avatarUrl(profile.avatar)"
             class="w-14 h-14 rounded-full object-cover border border-border"
             alt=""
           />
-          <div v-else class="w-14 h-14 rounded-full bg-surface-2 flex items-center justify-center text-xl font-bold text-faint">
-            {{ profile.username?.[0]?.toUpperCase() }}
-          </div>
           <div>
             <h1 class="text-xl font-bold flex items-center gap-2">
               {{ profile.username }}

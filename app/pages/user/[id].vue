@@ -4,7 +4,7 @@ import type { Post, User } from '~/types/api'
 const route = useRoute()
 const api = useApi()
 const { list } = usePosts()
-const mediaUrl = useMediaUrl()
+const avatarUrl = useAvatarUrl()
 
 // 路径参数既支持数字 id，也支持用户名（评论里的 @username 直接链到这里）
 const userRef = computed(() => String(route.params.id ?? ''))
@@ -45,17 +45,10 @@ watch(userRef, loadProfile)
     <template v-else>
       <section class="bg-surface border border-border rounded-lg p-6 flex items-center gap-4">
         <img
-          v-if="profile?.avatar"
-          :src="mediaUrl(profile.avatar)"
+          :src="avatarUrl(profile?.avatar)"
           class="w-14 h-14 rounded-full object-cover border border-border"
           alt=""
         />
-        <div
-          v-else
-          class="w-14 h-14 rounded-full bg-surface-2 flex items-center justify-center text-xl font-bold text-faint"
-        >
-          {{ profile?.username?.[0]?.toUpperCase() || '?' }}
-        </div>
         <div>
           <h1 class="text-xl font-bold">
             {{ profile?.username || userRef }}
