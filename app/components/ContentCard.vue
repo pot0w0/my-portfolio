@@ -27,6 +27,7 @@ const data = computed(() => {
       author: s.author,
       authorId: s.user_id,
       status: undefined as Post['status'],
+      likeCount: 0,
     }
   }
   const p = props.item.post
@@ -44,6 +45,7 @@ const data = computed(() => {
     author: p.author,
     authorId: p.user_id,
     status: p.status,
+    likeCount: p.like_count ?? 0,
   }
 })
 </script>
@@ -91,6 +93,9 @@ const data = computed(() => {
             :key="t.id"
             class="px-2 py-0.5 rounded bg-surface-2"
           >#{{ t.name }}</span>
+          <span v-if="data.likeCount" class="px-2 py-0.5 rounded bg-surface-2">
+            ♥ {{ data.likeCount }}
+          </span>
           <span v-if="data.metaText" class="px-2 py-0.5 rounded bg-surface-2">
             {{ data.metaText }}
           </span>

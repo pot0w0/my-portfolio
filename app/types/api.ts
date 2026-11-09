@@ -49,6 +49,8 @@ export interface Post {
   updated_at?: string
   cover?: string | null
   status?: 'draft' | 'published' | 'archived'
+  like_count?: number
+  liked_by_me?: boolean
 }
 
 export interface Comment {
@@ -56,8 +58,23 @@ export interface Comment {
   post_id: number
   user_id: number
   content: string
+  parent_id?: number | null
+  reply_to_user_id?: number | null
+  reply_to_username?: string | null
+  like_count?: number
+  liked_by_me?: boolean
   author?: User
   created_at?: string
+  replies?: Comment[]
+}
+
+export interface CommentPage extends PageOut<Comment> {
+  comment_total: number
+}
+
+export interface LikeStats {
+  like_count: number
+  liked_by_me: boolean
 }
 
 export interface PageOut<T> {

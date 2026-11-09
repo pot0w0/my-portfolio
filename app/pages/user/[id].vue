@@ -6,31 +6,35 @@ const api = useApi()
 const { list } = usePosts()
 const mediaUrl = useMediaUrl()
 
-const userId = computed(() => Number(route.params.id))
+// 路径参数既支持数字 id，也支持用户名（评论里的 @username 直接链到这里）
+const userRef = computed(() => String(route.params.id ?? ''))
 const profile = ref<User | null>(null)
 const posts = ref<Post[]>([])
 const loading = ref(false)
 const errorMsg = ref('')
 
-onMounted(async () => {
+async function loadProfile() {
   loading.value = true
   errorMsg.value = ''
+  posts.value = []
   try {
-    // 若后端提供公开用户接口则用之；否则从文章列表兜底
-    try {
-      profile.value = await api.get<User>(`/api/user/${userId.value}`, { silent: true } as any)
-    } catch {
-      profile.value = null
-    }
-    const res = await list({ page: 1, limit: 50, user_id: userId.value })
+    profile.value = await api.get<User>(
+      `/api/user/${encodeURIComponent(userRef.value)}`,
+      undefined,
+      { silent: true },
+    )
+    const res = await list({ page: 1, limit: 50, user_id: profile.value.id })
     posts.value = res.data
-    if (!profile.value && res.data[0]?.author) profile.value = res.data[0].author
   } catch (e: any) {
-    errorMsg.value = e?.message ?? '加载失败'
+    profile.value = null
+    errorMsg.value = e?.status === 404 ? '用户不存在' : (e?.message ?? '加载失败')
   } finally {
     loading.value = false
   }
-})
+}
+
+onMounted(loadProfile)
+watch(userRef, loadProfile)
 </script>
 
 <template>
@@ -54,7 +58,7 @@ onMounted(async () => {
         </div>
         <div>
           <h1 class="text-xl font-bold">
-            {{ profile?.username || `用户 #${userId}` }}
+            {{ profile?.username || userRef }}
           </h1>
           <p v-if="profile?.created_at" class="text-sm text-faint">
             加入于 {{ new Date(profile.created_at).toLocaleDateString() }}

@@ -4,8 +4,8 @@ import type { Post } from '~/types/api'
 const route = useRoute()
 const router = useRouter()
 const api = useApi()
-const { get, remove } = usePosts()
-const { user, isAdmin } = useAuth()
+const { get, remove, like, unlike } = usePosts()
+const { user, isAdmin, isLoggedIn } = useAuth()
 const mediaUrl = useMediaUrl()
 
 const post = ref<Post | null>(null)
@@ -57,6 +57,25 @@ async function fetchPost() {
 function onSaved(updated: Post) {
   post.value = updated
   editing.value = false
+}
+
+const liking = ref(false)
+async function toggleLike() {
+  if (!post.value) return
+  if (!isLoggedIn.value) {
+    await navigateTo('/login')
+    return
+  }
+  liking.value = true
+  try {
+    const stats = post.value.liked_by_me
+      ? await unlike(post.value.id)
+      : await like(post.value.id)
+    post.value.like_count = stats.like_count
+    post.value.liked_by_me = stats.liked_by_me
+  } catch {} finally {
+    liking.value = false
+  }
 }
 
 async function onDelete() {
@@ -142,6 +161,18 @@ async function onDelete() {
           <time v-if="post.created_at" class="text-faint">
             {{ new Date(post.created_at).toLocaleString() }}
           </time>
+          <button
+            type="button"
+            class="inline-flex items-center gap-1 disabled:opacity-50 transition"
+            :class="post.liked_by_me ? 'text-danger' : 'text-faint hover:text-danger'"
+            :disabled="liking"
+            :aria-pressed="!!post.liked_by_me"
+            @click="toggleLike"
+          >
+            <span>{{ post.liked_by_me ? '♥' : '♡' }}</span>
+            <span v-if="post.like_count">{{ post.like_count }}</span>
+            <span v-else>赞</span>
+          </button>
         </div>
       </div>
 

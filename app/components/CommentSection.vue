@@ -5,18 +5,48 @@ const props = defineProps<{ post: Post }>()
 const { list, create, remove } = useComments()
 const { user, isLoggedIn, isAdmin } = useAuth()
 
+const comments = ref<Comment[]>([])
+const page = ref(1)
+const limit = 10
+const total = ref(0)          // 根评论数（分页依据）
+const commentTotal = ref(0)   // 含回复的总数（展示用）
+const loading = ref(false)
+const loadError = ref('')
+
 const draft = ref('')
 const submitting = ref(false)
-
-// 用 useList 统一管理分页/加载/错误
-const { query, data: comments, total, loading, error: loadError, load, update } = useList(
-  (q) => list(props.post.id, q),
-  { page: 1, limit: 10, sort: 'created_at', order: 'asc' },
-)
-
 const submitError = ref('')
 
-onMounted(() => load())
+// 回复状态：指向被回复的那条评论（后端会把层级压平到根评论）
+const replyTarget = ref<Comment | null>(null)
+const replyDraft = ref('')
+const replying = ref(false)
+const replyError = ref('')
+
+async function load() {
+  loading.value = true
+  loadError.value = ''
+  try {
+    const res = await list(props.post.id, {
+      page: page.value,
+      limit,
+      sort: 'created_at',
+      order: 'asc',
+    })
+    comments.value = res.data
+    total.value = res.total
+    commentTotal.value = res.comment_total
+  } catch (e: any) {
+    loadError.value = e?.message ?? '加载失败'
+    comments.value = []
+    total.value = 0
+    commentTotal.value = 0
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(load)
 
 async function submit() {
   if (!draft.value.trim()) return
@@ -25,14 +55,50 @@ async function submit() {
   try {
     await create(props.post.id, draft.value.trim())
     draft.value = ''
-    // 分页下本地 push 可能错位（新评论在最后一页），直接重新拉
-    // 如果评论少（total <= limit），也可以拉第 1 页
+    // 按时间正序时新评论在最后一页，直接跳到那一页
+    page.value = Math.max(1, Math.ceil((total.value + 1) / limit))
     await load()
   } catch (e: any) {
     submitError.value = e?.message ?? '发表失败'
   } finally {
     submitting.value = false
   }
+}
+
+function startReply(c: Comment) {
+  if (!isLoggedIn.value) {
+    navigateTo('/login')
+    return
+  }
+  replyTarget.value = c
+  replyDraft.value = ''
+  replyError.value = ''
+}
+
+function cancelReply() {
+  replyTarget.value = null
+  replyDraft.value = ''
+  replyError.value = ''
+}
+
+async function submitReply() {
+  if (!replyTarget.value || !replyDraft.value.trim()) return
+  replying.value = true
+  replyError.value = ''
+  try {
+    await create(props.post.id, replyDraft.value.trim(), replyTarget.value.id)
+    cancelReply()
+    await load()
+  } catch (e: any) {
+    replyError.value = e?.message ?? '回复失败'
+  } finally {
+    replying.value = false
+  }
+}
+
+function gotoPage(p: number) {
+  page.value = p
+  load()
 }
 
 function canDelete(c: Comment) {
@@ -52,15 +118,15 @@ async function onDelete(c: Comment) {
 <template>
   <section class="mt-10">
     <h2 class="text-xl font-semibold mb-4">
-      评论 <span class="text-faint text-base">({{ total }})</span>
+      评论 <span class="text-faint text-base">({{ commentTotal }})</span>
     </h2>
 
-    <!-- 发表 -->
+    <!-- 发表顶层评论 -->
     <form v-if="isLoggedIn" class="mb-6" @submit.prevent="submit">
       <textarea
         v-model="draft"
         rows="3"
-        placeholder="说点什么…"
+        placeholder="说点什么…支持 @用户名 提及"
         class="w-full border border-border rounded px-3 py-2 text-sm bg-surface"
       />
       <div class="flex justify-end items-center mt-2 gap-3">
@@ -82,27 +148,83 @@ async function onDelete(c: Comment) {
     <p v-if="loading" class="text-sm text-faint">加载中…</p>
     <p v-else-if="!comments.length" class="text-sm text-faint">还没有评论，来抢沙发</p>
 
-    <!-- 列表 -->
+    <!-- 列表：根评论 + 回复 -->
     <ul v-else class="space-y-4">
-      <li v-for="c in comments" :key="c.id" class="bg-surface border border-border rounded-lg p-4">
-        <div class="flex items-center justify-between mb-1">
-          <UserBadge :user="c.author" :user-id="c.user_id" />
-          <div class="flex items-center gap-3 text-xs text-faint">
-            <time v-if="c.created_at">{{ new Date(c.created_at).toLocaleString() }}</time>
-            <button v-if="canDelete(c)" class="text-danger hover:underline" @click="onDelete(c)">删除</button>
+      <li v-for="c in comments" :key="c.id">
+        <CommentItem
+          :comment="c"
+          :can-delete="canDelete(c)"
+          @reply="startReply"
+          @delete="onDelete"
+        />
+
+        <!-- 回复根评论 -->
+        <form
+          v-if="replyTarget?.id === c.id"
+          class="ml-8 mt-2 bg-surface-2 border border-border rounded-lg p-3"
+          @submit.prevent="submitReply"
+        >
+          <p class="text-xs text-faint mb-1">回复 @{{ c.author?.username ?? '该评论' }}</p>
+          <textarea
+            v-model="replyDraft"
+            rows="2"
+            placeholder="写下你的回复…"
+            class="w-full border border-border rounded px-3 py-2 text-sm bg-surface"
+          />
+          <div class="flex justify-end items-center gap-3 mt-2">
+            <p v-if="replyError" class="text-sm text-danger">{{ replyError }}</p>
+            <button type="button" class="text-sm text-faint hover:text-text" @click="cancelReply">取消</button>
+            <button
+              class="px-3 py-1 bg-primary text-white rounded text-sm disabled:opacity-50"
+              :disabled="replying || !replyDraft.trim()"
+            >{{ replying ? '回复中…' : '回复' }}</button>
           </div>
-        </div>
-        <p class="text-sm text-muted whitespace-pre-wrap">{{ c.content }}</p>
+        </form>
+
+        <!-- 回复列表 -->
+        <ul v-if="c.replies?.length" class="ml-8 mt-3 space-y-3 border-l border-border pl-4">
+          <li v-for="r in c.replies" :key="r.id">
+            <CommentItem
+              :comment="r"
+              :can-delete="canDelete(r)"
+              @reply="startReply"
+              @delete="onDelete"
+            />
+
+            <!-- 回复某条回复 -->
+            <form
+              v-if="replyTarget?.id === r.id"
+              class="ml-8 mt-2 bg-surface-2 border border-border rounded-lg p-3"
+              @submit.prevent="submitReply"
+            >
+              <p class="text-xs text-faint mb-1">回复 @{{ r.author?.username ?? '该评论' }}</p>
+              <textarea
+                v-model="replyDraft"
+                rows="2"
+                placeholder="写下你的回复…"
+                class="w-full border border-border rounded px-3 py-2 text-sm bg-surface"
+              />
+              <div class="flex justify-end items-center gap-3 mt-2">
+                <p v-if="replyError" class="text-sm text-danger">{{ replyError }}</p>
+                <button type="button" class="text-sm text-faint hover:text-text" @click="cancelReply">取消</button>
+                <button
+                  class="px-3 py-1 bg-primary text-white rounded text-sm disabled:opacity-50"
+                  :disabled="replying || !replyDraft.trim()"
+                >{{ replying ? '回复中…' : '回复' }}</button>
+              </div>
+            </form>
+          </li>
+        </ul>
       </li>
     </ul>
 
     <!-- 分页：一页装得下就不显示 -->
     <Pagination
-      v-if="total > query.limit!"
-      :page="query.page!"
+      v-if="total > limit"
+      :page="page"
       :total="total"
-      :limit="query.limit!"
-      @change="(p) => update({ page: p })"
+      :limit="limit"
+      @change="gotoPage"
     />
   </section>
 </template>
