@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { Post, Series, User } from '~/types/api'
+import type { PageOut, Post, Series, User } from '~/types/api'
 
 const api = useApi()
 const { list } = usePosts()
@@ -20,12 +20,12 @@ onMounted(async () => {
     const [featuredRes, latestRes, seriesRes, ownerRes] = await Promise.all([
       list({ page: 1, limit: 3, featured: true }),
       list({ page: 1, limit: 5, standalone: true }),
-      api.get<Series[]>('/api/series', undefined, { silent: true }),
+      api.get<PageOut<Series>>('/api/series', { page: 1, limit: 3 }, { silent: true }),
       api.get<User>('/api/user/1', undefined, { silent: true }),
     ])
     featured.value = featuredRes.data
     latest.value = latestRes.data
-    seriesList.value = seriesRes.slice(0, 3)
+    seriesList.value = seriesRes.data.slice(0, 3)
     owner.value = ownerRes
   } catch {} finally {
     loading.value = false

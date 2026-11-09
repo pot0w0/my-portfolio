@@ -84,6 +84,7 @@ export interface PostPayload {
   series_id?: number | null
   series_order?: number | null
   cover?: string | null
+  status?: 'draft' | 'published'
 }
 
 export interface PostListQuery {

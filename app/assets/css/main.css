@@ -121,4 +121,11 @@ select {
 }
 ::view-transition-new(root) {
   z-index: 2;
+  /* 初始裁剪：动画启动前的任何一帧都不会露出整页新主题 */
+  clip-path: circle(0 at var(--vt-x, 50vw) var(--vt-y, 50vh));
+}
+
+/* 过渡期间禁用普通 CSS transition，避免新快照抓到过渡中途的颜色 */
+:root:active-view-transition * {
+  transition: none !important;
 }

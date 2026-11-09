@@ -167,6 +167,9 @@ async function saveSeriesPost(payload: PostPayload) {
             v-if="showEditor"
             :post="null"
             :lock-series="true"
+            :preset-series-id="series.id"
+            :preset-series-order="nextOrder"
+            :preset-series-title="series.title"
             @saved="onSeriesSaved"
             @cancel="showEditor = false"
           />

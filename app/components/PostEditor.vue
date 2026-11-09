@@ -1,7 +1,17 @@
 <script setup lang="ts">
-import type { Post, PostPayload, Series } from '~/types/api'
+import type { PageOut, Post, PostPayload, Series } from '~/types/api'
 
-const props = defineProps<{ post?: Post | null }>()
+const props = defineProps<{
+  post?: Post | null
+  /** 锁定所属系列（从系列页新建文章时使用） */
+  lockSeries?: boolean
+  /** 锁定时预置的系列 id */
+  presetSeriesId?: number | null
+  /** 锁定时预置的系列序号 */
+  presetSeriesOrder?: number | null
+  /** 锁定时展示的系列标题（系列列表还没加载时用） */
+  presetSeriesTitle?: string
+}>()
 const emit = defineEmits<{
   (e: 'saved', post: Post): void
   (e: 'cancel'): void
@@ -24,8 +34,22 @@ const tagIds = ref<number[]>(props.post?.tags?.map(t => t.id) ?? [])
 const featured = ref(props.post?.featured ?? false)
 
 const seriesList = ref<Series[]>([])
-const seriesId = ref<number | null>(props.post?.series_id ?? null)
-const seriesOrder = ref<number | null>(props.post?.series_order ?? null)
+const seriesId = ref<number | null>(
+  props.post?.series_id ?? props.presetSeriesId ?? null,
+)
+const seriesOrder = ref<number | null>(
+  props.post?.series_order ?? props.presetSeriesOrder ?? null,
+)
+
+// 状态：已有文章沿用原状态，新文章默认发布
+const status = ref<'draft' | 'published'>(
+  props.post?.status === 'draft' ? 'draft' : 'published',
+)
+const lockedSeriesTitle = computed(() =>
+  props.presetSeriesTitle
+  || seriesList.value.find(s => s.id === seriesId.value)?.title
+  || '当前系列',
+)
 
 // 封面
 const coverUrl = ref<string | null>(props.post?.cover ?? null)
@@ -48,15 +72,27 @@ const showBodyPicker = ref(false)
 onMounted(async () => {
   const [, seriesRes] = await Promise.allSettled([
     load(),
-    api.get<Series[]>('/api/series', undefined, { silent: true }),
+    // 后端返回分页结构 { data, total, page, limit }，不是数组
+    api.get<PageOut<Series>>('/api/series', { page: 1, limit: 100 }, { silent: true }),
   ])
-  if (seriesRes.status === 'fulfilled') seriesList.value = seriesRes.value
+  if (seriesRes.status === 'fulfilled') seriesList.value = seriesRes.value.data
 })
 
-function suggestOrder() {
+async function suggestOrder() {
   if (!seriesId.value) { seriesOrder.value = null; return }
   const s = seriesList.value.find(x => x.id === seriesId.value)
+  // 先用篇数兜底，再按实际最大序号修正（篇数可能小于最大序号）
   seriesOrder.value = (s?.post_count ?? 0) + 1
+  if (!s?.slug) return
+  try {
+    const res = await api.get<{ posts: Post[] }>(
+      `/api/series/${s.slug}`,
+      undefined,
+      { silent: true },
+    )
+    const maxOrder = res.posts.reduce((m, p) => Math.max(m, p.series_order ?? 0), 0)
+    seriesOrder.value = maxOrder + 1
+  } catch {}
 }
 function onSeriesChange() {
   if (seriesId.value) suggestOrder()
@@ -143,8 +179,10 @@ function insertAtCursor(text: string) {
   })
 }
 
-async function save() {
-  if (!title.value.trim() || !content.value.trim()) return
+async function save(target: 'draft' | 'published' = status.value) {
+  // 草稿允许空正文，发布要求正文非空
+  if (!title.value.trim()) return
+  if (target === 'published' && !content.value.trim()) return
   saving.value = true
   saveError.value = ''
   try {
@@ -166,6 +204,7 @@ async function save() {
       featured: featured.value,
       series_id: seriesId.value,
       series_order: seriesId.value ? seriesOrder.value : null,
+      status: target,
     }
     if (finalCover !== undefined) payload.cover = finalCover
 
@@ -173,6 +212,7 @@ async function save() {
       ? await update(props.post.id, payload)
       : await create(payload)
 
+    status.value = target
     emit('saved', p)
   } catch (e: any) {
     saveError.value = e?.message ?? '保存失败'
@@ -186,7 +226,13 @@ async function save() {
   <div class="bg-surface border border-border rounded-lg p-5 space-y-5">
     <!-- 头部 -->
     <div class="flex items-center justify-between">
-      <h3 class="font-semibold">{{ post ? '编辑文章' : '写文章' }}</h3>
+      <h3 class="font-semibold flex items-center gap-2">
+        {{ post ? '编辑文章' : '写文章' }}
+        <span
+          v-if="status === 'draft'"
+          class="text-xs font-normal px-2 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+        >草稿</span>
+      </h3>
       <button class="text-sm text-primary hover:underline" type="button" @click="preview = !preview">
         {{ preview ? '返回编辑' : '预览' }}
       </button>
@@ -259,7 +305,14 @@ async function save() {
     <div class="grid gap-3 md:grid-cols-2">
       <label class="block">
         <span class="text-xs text-faint mb-1 block">系列</span>
+        <div
+          v-if="lockSeries"
+          class="w-full border border-border rounded px-3 py-2 bg-surface-2 text-sm text-muted"
+        >
+          系列 · {{ lockedSeriesTitle }}
+        </div>
         <select
+          v-else
           v-model="seriesId"
           class="w-full border border-border rounded px-3 py-2 bg-surface text-sm"
           @change="onSeriesChange"
@@ -345,10 +398,16 @@ async function save() {
       >取消</button>
       <button
         type="button"
+        class="px-4 py-1.5 border border-border rounded hover:bg-surface-2 disabled:opacity-50"
+        :disabled="saving || !title.trim()"
+        @click="save('draft')"
+      >{{ saving ? '保存中…' : (status === 'draft' ? '保存草稿' : '转为草稿') }}</button>
+      <button
+        type="button"
         class="px-4 py-1.5 bg-primary text-white rounded hover:opacity-90 disabled:opacity-50"
         :disabled="saving || !title.trim() || !content.trim()"
-        @click="save"
-      >{{ saving ? '保存中…' : '保存' }}</button>
+        @click="save('published')"
+      >{{ saving ? '保存中…' : (status === 'draft' ? '发布' : '保存') }}</button>
     </div>
 
     <!-- 弹窗 -->

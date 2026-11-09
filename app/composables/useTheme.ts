@@ -55,8 +55,8 @@ export function useTheme() {
       if (import.meta.client) localStorage.setItem('theme', next)
     })
 
+    // 必须在 ready resolve 的同一帧内启动动画，否则新快照会以未裁剪状态露出几帧（闪烁）
     try { await transition.ready } catch { return }
-    await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)))
     document.documentElement.animate(
       {
         clipPath: [
@@ -67,6 +67,7 @@ export function useTheme() {
       {
         duration: 500,
         easing: 'cubic-bezier(.4,0,.2,1)',
+        fill: 'forwards',
         pseudoElement: '::view-transition-new(root)',
       },
     )
