@@ -48,16 +48,6 @@ const nextOrder = computed(() => {
   return maxOrder + 1
 })
 
-// function onSeriesSave(payload: PostPayload) {
-//   editorError.value = ''
-//   // 强制绑到当前系列
-//   saveSeriesPost({
-//     ...payload,
-//     series_id: series.value!.id,
-//     series_order: payload.series_order ?? nextOrder.value,
-//   })
-// }
-
 function onSeriesSaved(p: Post) {
   posts.value.push(p)
   posts.value.sort((a, b) => (a.series_order ?? 0) - (b.series_order ?? 0))
@@ -106,7 +96,7 @@ async function saveSeriesPost(payload: PostPayload) {
           </p>
         </div>
 
-        <!-- 右：标题 + 介绍文（不再显示 series.description） -->
+        <!-- 右：标题 + 介绍文（可悬停展开 + 滚轮查看全文） -->
         <div class="space-y-4">
           <header class="space-y-2">
             <h1 class="text-3xl font-bold leading-tight">{{ series.title }}</h1>
@@ -120,19 +110,44 @@ async function saveSeriesPost(payload: PostPayload) {
 
           <!-- 介绍文：系列的"描述"就是这篇文章 -->
           <div v-if="intro" class="relative">
-            <div class="max-h-72 overflow-hidden prose prose-slate max-w-none">
-              <MDC v-if="intro.content?.trim()" :value="intro.content" />
-              <p v-else class="text-muted">
-                {{ defaultIntroText }}
-              </p>
-            </div>
-            <!-- 渐隐 + 阅读完整介绍 只在有内容时显示 -->
-            <template v-if="intro.content?.trim()">
-              <div class="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-surface to-transparent" />
-              <div class="mt-2">
-                <NuxtLink :to="`/posts/${intro.id}`" class="text-sm text-primary hover:underline">阅读完整介绍 →</NuxtLink>
+            <!-- 悬停展开：group-hover 让外层高度变大，内层可滚动 -->
+            <div
+              class="group/intro relative transition-[max-height] duration-500 ease-out
+                     max-h-72 hover:max-h-[70vh] overflow-hidden"
+            >
+              <!-- 可滚动区：鼠标移入后可滚轮查看全文 -->
+              <div
+                class="max-h-72 group-hover/intro:max-h-[70vh] overflow-y-auto pr-1
+                       prose prose-slate max-w-none scrollbar-thin transition-[max-height] duration-500"
+              >
+                <MDC v-if="intro.content?.trim()" :value="intro.content" />
+                <p v-else class="text-muted">
+                  {{ defaultIntroText }}
+                </p>
               </div>
-            </template>
+
+              <!-- 渐隐 + 提示：仅未展开且有内容时显示 -->
+              <template v-if="intro.content?.trim()">
+                <div
+                  class="pointer-events-none absolute inset-x-0 bottom-0 h-16
+                         bg-gradient-to-t from-surface to-transparent
+                         opacity-100 group-hover/intro:opacity-0 transition-opacity"
+                />
+                <div
+                  class="absolute right-1 bottom-1 text-[11px] text-faint
+                         bg-surface/80 backdrop-blur px-1.5 py-0.5 rounded
+                         opacity-100 group-hover/intro:opacity-0 transition-opacity"
+                >
+                  悬停查看全文
+                </div>
+              </template>
+            </div>
+
+            <div v-if="intro.content?.trim()" class="mt-2">
+              <NuxtLink :to="`/posts/${intro.id}`" class="text-sm text-primary hover:underline">
+                阅读完整介绍 →
+              </NuxtLink>
+            </div>
           </div>
 
           <NuxtLink
@@ -158,7 +173,6 @@ async function saveSeriesPost(payload: PostPayload) {
           </button>
         </div>
 
-        <!-- 编辑器：预置系列，序号自动 -->
         <div v-if="showEditor" class="space-y-2">
           <p class="text-sm text-faint">
             新文章将加入《{{ series.title }}》，序号 {{ nextOrder }}

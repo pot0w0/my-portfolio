@@ -53,7 +53,7 @@ onMounted(async () => {
       </div>
 
       <h1 class="text-4xl md:text-5xl font-bold mb-3">
-        {{ owner?.username || 'Portfolio' }}
+        {{ owner?.username || 'pt2' }}
       </h1>
       <p class="text-lg text-muted max-w-xl mx-auto mb-2">
         <!-- 写代码的人，偶尔写字。这里记录我的项目、文章与思考。 -->

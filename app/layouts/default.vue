@@ -44,7 +44,7 @@ onBeforeUnmount(() => {
     >
       <div class="max-w-4xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
         <!-- 左：logo -->
-        <NuxtLink to="/" class="font-bold text-lg shrink-0">Portfolio</NuxtLink>
+        <NuxtLink to="/" class="font-bold text-lg shrink-0">pot0w0</NuxtLink>
 
         <!-- 右：搜索 + 导航 + 主题 -->
         <div class="flex items-center gap-3 md:gap-4">
@@ -92,7 +92,7 @@ onBeforeUnmount(() => {
 
     <footer class="border-t border-border bg-surface">
       <div class="max-w-4xl mx-auto px-4 py-4 text-sm text-faint">
-        © {{ new Date().getFullYear() }} Portfolio
+        © {{ new Date().getFullYear() }} pot0w0
       </div>
     </footer>
 
