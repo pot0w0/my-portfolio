@@ -3,6 +3,7 @@ import type { Post } from '~/types/api'
 
 const route = useRoute()
 const router = useRouter()
+const api = useApi()
 const { get, remove } = usePosts()
 const { user, isAdmin } = useAuth()
 const mediaUrl = useMediaUrl()
@@ -13,14 +14,23 @@ const errorMsg = ref('')
 const editing = ref(false)
 const actionError = ref('')
 
-const adjacent = ref<{ prev: Post | null; next: Post | null; series: any | null } | null>(null)
+interface AdjacentResponse {
+  prev: Post | null
+  next: Post | null
+  series: { id: number; slug: string; title: string; index: number; total: number } | null
+}
+
+const adjacent = ref<AdjacentResponse | null>(null)
 
 async function fetchAdjacent() {
   try {
-    adjacent.value = await useApi().get(`/api/posts/${route.params.id}/adjacent`, undefined, { silent: true })
+    adjacent.value = await api.get<AdjacentResponse>(
+      `/api/posts/${route.params.id}/adjacent`,
+      undefined,
+      { silent: true }, // useApi 会自动带 Authorization header
+    )
   } catch { adjacent.value = null }
 }
-
 
 onMounted(() => { fetchPost(); fetchAdjacent() })
 const isAuthor = computed(
@@ -34,13 +44,15 @@ async function fetchPost() {
   try {
     post.value = await get(route.params.id as string, { silent: true })
   } catch (e: any) {
-    errorMsg.value = e?.status === 404 ? '文章不存在' : e?.message ?? '加载失败'
+    // 404 可能是"真不存在"，也可能是"draft 无权看"——文案必须统一
+    errorMsg.value = e?.status === 404
+      ? '文章不存在或已被删除'
+      : e?.message ?? '加载失败'
     post.value = null
   } finally {
     loading.value = false
   }
 }
-onMounted(fetchPost)
 
 function onSaved(updated: Post) {
   post.value = updated
@@ -55,7 +67,9 @@ async function onDelete() {
     await remove(post.value.id)
     await router.push('/posts')
   } catch (e: any) {
-    actionError.value = e?.message ?? '删除失败'
+    actionError.value = e?.status === 404
+      ? '文章不存在或已被删除'
+      : e?.message ?? '删除失败'
   }
 }
 
@@ -103,6 +117,14 @@ async function onDelete() {
       >
         <h1 class="text-3xl md:text-4xl font-bold text-fg leading-tight">
           {{ post.title }}
+          <span
+            v-if="post.status === 'draft'"
+            class="inline-block align-middle ml-2 text-sm font-medium px-2 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+          >草稿</span>
+          <span
+            v-else-if="post.status === 'archived'"
+            class="inline-block align-middle ml-2 text-sm font-medium px-2 py-0.5 rounded bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300"
+          >已归档</span>
         </h1>
 
         <div class="mt-3 flex items-center gap-4 text-sm text-muted flex-wrap">

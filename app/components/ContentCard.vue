@@ -26,6 +26,7 @@ const data = computed(() => {
       createdAt: s.created_at,
       author: s.author,
       authorId: s.user_id,
+      status: undefined as Post['status'],
     }
   }
   const p = props.item.post
@@ -42,6 +43,7 @@ const data = computed(() => {
     createdAt: p.created_at,
     author: p.author,
     authorId: p.user_id,
+    status: p.status,
   }
 })
 </script>
@@ -51,8 +53,16 @@ const data = computed(() => {
     <div class="flex gap-4">
       <!-- 左：文字 -->
       <div class="flex-1 min-w-0">
-        <!-- 徽标行：系列 / 精选 / post 所属系列 -->
+        <!-- 徽标行：状态 / 系列 / 精选 / post 所属系列 -->
         <div class="flex items-center gap-2 mb-2 flex-wrap">
+          <span
+            v-if="data.status === 'draft'"
+            class="text-xs px-2 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+          >草稿</span>
+          <span
+            v-else-if="data.status === 'archived'"
+            class="text-xs px-2 py-0.5 rounded bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300"
+          >已归档</span>
           <span
             v-if="data.kind === 'series'"
             class="text-xs px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"

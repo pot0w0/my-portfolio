@@ -48,6 +48,7 @@ export interface Post {
   created_at?: string
   updated_at?: string
   cover?: string | null
+  status?: 'draft' | 'published' | 'archived'
 }
 
 export interface Comment {
