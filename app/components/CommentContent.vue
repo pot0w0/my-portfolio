@@ -31,7 +31,7 @@ const parts = computed<Part[]>(() => {
 </script>
 
 <template>
-  <p class="text-sm text-muted whitespace-pre-wrap">
+  <p class="text-base text-muted whitespace-pre-wrap">
     <template v-for="(part, i) in parts" :key="i">
       <NuxtLink
         v-if="part.mention"

@@ -12,6 +12,7 @@ const emit = defineEmits<{
 
 const { like, unlike } = useComments()
 const { isLoggedIn } = useAuth()
+const avatarUrl = useAvatarUrl()
 
 const likeCount = ref(props.comment.like_count ?? 0)
 const liked = ref(!!props.comment.liked_by_me)
@@ -58,13 +59,21 @@ const authorName = computed(() => props.comment.author?.username ?? '匿名')
 </script>
 
 <template>
-  <div class="bg-surface border border-border rounded-lg p-4 flex gap-3 items-start">
-    <!-- 左侧：头像 + 昵称（竖排，固定窄列，右侧正文自然留白） -->
+  <div class="bg-surface border border-border rounded-lg p-4 flex gap-3 items-stretch">
+    <!-- 左侧：头像在上、昵称在下（竖排，固定窄列，右侧正文自然留白） -->
     <div class="flex flex-col items-center w-20 shrink-0">
-      <UserBadge
-        :user="comment.author"
-        :user-id="comment.user_id"
-        class="[&_img]:w-16 [&_img]:h-16 [&_img]:rounded-full"
+      <NuxtLink v-if="authorLink" :to="authorLink" :title="authorName" class="shrink-0">
+        <img
+          :src="avatarUrl(comment.author?.avatar)"
+          class="w-16 h-16 rounded-full object-cover border border-border"
+          alt=""
+        />
+      </NuxtLink>
+      <img
+        v-else
+        :src="avatarUrl(comment.author?.avatar)"
+        class="w-16 h-16 rounded-full object-cover border border-border shrink-0"
+        alt=""
       />
       <NuxtLink
         v-if="authorLink"
@@ -72,7 +81,7 @@ const authorName = computed(() => props.comment.author?.username ?? '匿名')
         class="mt-1 max-w-full truncate text-xs text-faint hover:text-primary hover:underline"
         :title="authorName"
       >
-        <!-- {{ authorName }} -->
+        {{ authorName }}
       </NuxtLink>
       <span v-else class="mt-1 max-w-full truncate text-xs text-faint" :title="authorName">
         {{ authorName }}
@@ -80,7 +89,7 @@ const authorName = computed(() => props.comment.author?.username ?? '匿名')
     </div>
 
     <!-- 右侧内容区 -->
-    <div class="flex-1 min-w-0">
+    <div class="flex-1 min-w-0 flex flex-col">
       <!-- 被回复信息 -->
       <p v-if="comment.reply_to_username" class="text-xs text-faint mb-1">
         回复
@@ -93,8 +102,8 @@ const authorName = computed(() => props.comment.author?.username ?? '匿名')
       <!-- 评论正文 -->
       <CommentContent :content="comment.content" />
 
-      <!-- 底部：时间、回复、点赞 -->
-      <div class="mt-2 flex items-center gap-3 text-xs text-faint">
+      <!-- 底部：时间、回复、点赞（锚定在方块底部） -->
+      <div class="mt-auto pt-3 flex items-center gap-3 text-xs text-faint">
         <time v-if="comment.created_at">{{ new Date(comment.created_at).toLocaleString() }}</time>
         <button class="hover:text-primary hover:underline" @click="emit('reply', comment)">回复</button>
         <button
