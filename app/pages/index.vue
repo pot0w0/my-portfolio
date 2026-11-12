@@ -64,13 +64,15 @@ onMounted(async () => {
         >
           读文章 →
         </NuxtLink>
-        <NuxtLink
-          v-if="isLoggedIn"
-          to="/posts"
-          class="px-6 py-2.5 border border-border rounded-lg hover:bg-surface-2 transition"
-        >
-          写文章
-        </NuxtLink>
+        <ClientOnly>
+          <NuxtLink
+            v-if="isLoggedIn"
+            to="/posts"
+            class="px-6 py-2.5 border border-border rounded-lg hover:bg-surface-2 transition"
+          >
+            写文章
+          </NuxtLink>
+        </ClientOnly>
         <a
           href="https://github.com/pot0w0"
           target="_blank"
@@ -90,9 +92,9 @@ onMounted(async () => {
         偶尔写点随笔。这里是我的数字花园——文章、系列、项目都在这。 -->
         DOMO, {{ owner?.username || '某个开发者' }} desu
       </p>
-      <NuxtLink to="/about" class="text-sm text-primary hover:underline">
+      <!-- <NuxtLink to="/about" class="text-sm text-primary hover:underline">
         了解更多 →
-      </NuxtLink>
+      </NuxtLink> -->
     </section>
 
     <!-- 精选 -->
