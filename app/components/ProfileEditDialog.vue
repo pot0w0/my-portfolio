@@ -177,7 +177,7 @@ async function submit() {
 
         <!-- 邮箱 -->
         <label class="block">
-          <span class="text-sm mb-1 block">邮箱（可选）</span>
+          <span class="text-sm mb-1 block">邮箱</span>
           <input v-model="email" type="email" class="w-full border border-border rounded px-3 py-2 bg-surface" />
         </label>
 

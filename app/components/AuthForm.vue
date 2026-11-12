@@ -10,7 +10,12 @@ function submit() {
   error.value = ''
   if (!username.value || !password.value) { error.value = '用户名和密码必填'; return }
   const payload: any = { username: username.value, password: password.value }
-  if (props.mode === 'register' && email.value) payload.email = email.value
+  if (props.mode === 'register') {
+    const mail = email.value.trim()
+    if (!mail) { error.value = '邮箱必填，用于接收验证邮件'; return }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) { error.value = '邮箱格式不正确'; return }
+    payload.email = mail
+  }
   emit('submitted', payload)
 }
 </script>
@@ -22,8 +27,14 @@ function submit() {
       <input v-model="username" class="w-full border border-border rounded px-3 py-2 bg-surface" />
     </div>
     <div v-if="mode === 'register'">
-      <label class="block text-sm mb-1">邮箱（可选）</label>
-      <input v-model="email" type="email" class="w-full border border-border rounded px-3 py-2 bg-surface" />
+      <label class="block text-sm mb-1">邮箱 <span class="text-danger">*</span></label>
+      <input
+        v-model="email"
+        type="email"
+        required
+        placeholder="用于接收验证邮件"
+        class="w-full border border-border rounded px-3 py-2 bg-surface"
+      />
     </div>
     <div>
       <label class="block text-sm mb-1">密码</label>

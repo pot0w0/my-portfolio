@@ -25,7 +25,7 @@ export function useApi() {
     } catch (err: any) {
       const status: number = err?.status ?? err?.statusCode ?? 0
       const message: string =
-        err?.data?.message ?? err?.data?.error ?? err?.message ?? '请求失败'
+        err?.data?.detail ?? err?.data?.message ?? err?.data?.error ?? err?.message ?? '请求失败'
 
       if (!silent && status !== 401) toast.error(message)
 

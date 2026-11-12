@@ -1,4 +1,4 @@
-import type { AuthResponse, LoginPayload, RegisterPayload, User } from '~/types/api'
+import type { AuthResponse, LoginPayload, RegisterPayload, RegisterResponse, User } from '~/types/api'
 
 export function useAuth() {
   const api = useApi()
@@ -28,9 +28,8 @@ export function useAuth() {
   }
 
   async function register(payload: RegisterPayload) {
-    const res = await api.post<AuthResponse>('/api/user/register', payload, { silent: true })
-    if (res.token) setAuth(res.token, res.user)
-    return res
+    // 注册不再直接登录：需要先到邮箱里点击验证链接
+    return api.post<RegisterResponse>('/api/user/register', payload, { silent: true })
   }
 
   async function fetchMe() {

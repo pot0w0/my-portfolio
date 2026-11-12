@@ -90,7 +90,8 @@ export interface ApiError {
 }
 
 export interface LoginPayload { username: string; password: string }
-export interface RegisterPayload { username: string; password: string; email?: string }
+export interface RegisterPayload { username: string; password: string; email: string }
+export interface RegisterResponse { message: string; email: string }
 export interface AuthResponse { token: string; user: User }
 
 export interface PostPayload {
