@@ -213,7 +213,7 @@ const showToolbarFilters = computed(() => true)
         placeholder="搜索文章标题或内容…"
         class="w-full border border-border rounded-lg pl-10 pr-10 py-2 bg-surface"
       />
-      <span class="absolute left-3 top-1/2 -translate-y-1/2 text-faint pointer-events-none">🔍</span>
+      <span class="absolute left-3 top-1/2 -translate-y-1/2 text-faint pointer-events-none">Q</span>
       <button
         v-if="searchInput"
         class="absolute right-3 top-1/2 -translate-y-1/2 text-faint hover:text-text"
