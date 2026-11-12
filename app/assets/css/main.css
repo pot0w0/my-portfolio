@@ -129,3 +129,69 @@ select {
 :root:active-view-transition * {
   transition: none !important;
 }
+/* ---- 首屏加载遮罩 ---- */
+#app-loading {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  /* 隐藏时等淡出结束再切 visibility */
+  transition: opacity 0.35s ease, visibility 0s linear 0.35s;
+}
+
+#app-loading.is-visible {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition: opacity 0.2s ease;
+}
+
+.app-loading__spinner {
+  width: 40px;
+  height: 40px;
+  border-radius: 9999px;
+  border: 3px solid var(--border);
+  border-top-color: var(--primary);
+  animation: app-loading-spin 0.8s linear infinite;
+}
+
+@keyframes app-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 加载完成后整页组件同时淡入 */
+html.app-reveal #app-content {
+  animation: app-content-fade-in 0.45s ease-out both;
+}
+
+@keyframes app-content-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #app-loading,
+  #app-loading.is-visible {
+    transition-duration: 0.01ms;
+  }
+  .app-loading__spinner {
+    animation-duration: 2s;
+  }
+  html.app-reveal #app-content {
+    animation: none;
+  }
+}
